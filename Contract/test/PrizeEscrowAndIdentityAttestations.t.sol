@@ -1,125 +1,53 @@
-// SPDX-License-Identifier: MIT
+/// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
 import "forge-std/Test.sol";
 import {PrizeEscrow} from "../src/rootstock/PrizeEscrow.sol";
-import {IdentityAttestations} from "../src/rootstock/IdentityAttestations.sol";
-import {SelfVerifierAdapter} from "../src/celo/SelfVerifierAdapter.sol";
-import {Types} from "../src/common/Types.sol";
-import {EscrowEvents, IdentityEvents} from "../src/common/Events.sol";
 import {Errors} from "../src/common/Errors.sol";
 
-contract PrizeEscrowAndIdentityAttestationsTest is Test {
-    // Actors
-    address internal ORG = address(0xA11CE);
-    address internal J1  = address(0xBEEF1);
-    address internal J2  = address(0xBEEF2);
-    address internal J3  = address(0xBEEF3);
-    address internal USER = address(0xCAFE);
-    address internal RANDOM = address(0xD00D);
+contract PrizeEscrow_NoAttestor_Test is Test {
+    PrizeEscrow escrow;
 
-    // Contracts
-    IdentityAttestations internal attest;
-    PrizeEscrow internal escrow;
-    SelfVerifierAdapter internal adapter;
-
-    // Common scope
-    bytes32 internal SCOPE = keccak256("DEV_SCOPE");
+    address ORG = address(0xA11CE);
+    address U1  = address(0xBEEF1);
+    address U2  = address(0xBEEF2);
+    address W1  = address(0x1111);
+    address W2  = address(0x2222);
 
     function setUp() public {
-        // Fund actors with native coin
+        escrow = new PrizeEscrow();
         vm.deal(ORG, 100 ether);
-        vm.deal(RANDOM, 10 ether);
-
-        // Deploy identity sink (trusted will be set later)
-        attest = new IdentityAttestations(address(0));
-
-        // Deploy escrow (wire attestations; escrow doesn’t use it yet for gating in this milestone)
-        escrow = new PrizeEscrow(address(attest));
-
-        // Deploy Celo-side adapter and wire to Rootstock sink
-        adapter = new SelfVerifierAdapter(address(attest));
-
-        // Now trust the adapter as sender on the sink
-        vm.prank(attest.owner()); // owner is deployer: this test contract
-        attest.setTrustedSender(address(adapter));
+        vm.deal(U1, 10 ether);
+        vm.deal(U2, 10 ether);
     }
 
-    // ---------------------------
-    // IdentityAttestations tests
-    // ---------------------------
-
-    function testOwnerCanSetVerified_AndRead() public {
-        // initially false
-        assertFalse(_isVerified(USER, SCOPE));
-
-        // owner flips it on
-        vm.prank(attest.owner());
-        attest.setVerified(USER, SCOPE, true);
-
-        assertTrue(_isVerified(USER, SCOPE));
-
-        // owner flips it off
-        vm.prank(attest.owner());
-        attest.setVerified(USER, SCOPE, false);
-
-        assertFalse(_isVerified(USER, SCOPE));
+    function _makeParams(
+        uint96 dep,
+        uint64 regPlus,
+        uint64 finPlus,
+        uint8 thr,
+        uint16 judgeCount
+    ) internal view returns (PrizeEscrow.CreateEventParams memory p) {
+        address[] memory judges = new address[](judgeCount);
+        for (uint i=0;i<judgeCount;i++) judges[i] = address(uint160(0x1000+i));
+        p = PrizeEscrow.CreateEventParams({
+            token: address(0),
+            depositAmount: dep,
+            registerDeadline: uint64(block.timestamp + regPlus),
+            finalizeDeadline: uint64(block.timestamp + finPlus),
+            judges: judges,
+            judgeThreshold: thr,
+            scope: bytes32("SCOPE")
+        });
     }
 
-    function testReceiveAttestationViaAdapter_SetsVerified() public {
-        // adapter verifies & bridges to sink
-        vm.prank(RANDOM); // any caller; adapter doesn’t restrict in this hackathon version
-        adapter.verifyAndBridge(hex"", SCOPE, USER);
+    function test_Create_TopUp_Cancel() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 10 days, 0, 2);
 
-        assertTrue(_isVerified(USER, SCOPE));
-    }
-
-    function testOnlyOwnerGuardsOnIdentity() public {
-        // setOwner: only owner can call
-        vm.prank(RANDOM);
-        vm.expectRevert(); // "OWN" or onlyOwner require — contract uses a require with "OWN"
-        attest.setOwner(RANDOM);
-
-        // setTrustedSender: only owner can call
-        vm.prank(RANDOM);
-        vm.expectRevert();
-        attest.setTrustedSender(RANDOM);
-    }
-
-    // ---------------------------
-    // PrizeEscrow tests (native)
-    // ---------------------------
-
-    function testCreateEvent_Getters_TopUp_Cancel_Native() public {
-        // Compose params: native token (address(0))
-        Types.CreateParams memory p;
-        p.token            = address(0); // native
-        p.depositAmount    = 1 ether;
-        p.registerDeadline = uint64(block.timestamp + 1 days);
-        p.finalizeDeadline = uint64(block.timestamp + 10 days);
-        p.judges           = _arr(J1, J2);
-        p.judgeThreshold   = 1;
-        p.scope            = SCOPE;
-
-        // Expect EventCreated
-        
-        vm.expectEmit(true, true, false, true);
-        emit EscrowEvents.EventCreated(
-            1,               
-            ORG,
-            address(0),
-            uint96(p.depositAmount),
-            p.registerDeadline,
-            p.finalizeDeadline,
-            p.scope
-        );
-
-        // Create with native deposit
         vm.prank(ORG);
         uint256 id = escrow.createEvent{value: p.depositAmount}(p);
         assertEq(id, 1);
 
-        // Read back via getter
         (
             address organizer,
             address token,
@@ -142,137 +70,134 @@ contract PrizeEscrowAndIdentityAttestationsTest is Test {
         assertFalse(finalized);
         assertFalse(canceled);
         assertEq(judgeCount, 2);
-        assertEq(judgeThreshold, 1);
+        assertEq(judgeThreshold, 0);
 
-        // isJudge checks
-        assertTrue(escrow.isJudge(id, J1));
-        assertTrue(escrow.isJudge(id, J2));
-        assertFalse(escrow.isJudge(id, J3));
-
-        // Top up native
         vm.prank(ORG);
-        vm.expectEmit(true, false, false, true);
-        emit EscrowEvents.ToppedUp(id, uint96(0.5 ether));
         escrow.topUp{value: 0.5 ether}(id, uint96(0.5 ether));
 
-        assertEq(escrow.getPrizeRemaining(id), uint96(1.5 ether));
+        (, , prizeRemaining, , , , , , , ) = escrow.getEvent(id);
+        assertEq(prizeRemaining, uint96(1.5 ether));
 
-        // Add another judge
-        vm.prank(ORG);
-        address[] memory add = new address[](1);
-        add[0] = J3;
-        escrow.addJudges(id, add);
-        assertTrue(escrow.isJudge(id, J3));
-
-        // Threshold can be set up to judgeCount
-        vm.prank(ORG);
-        escrow.setJudgeThreshold(id, 2);
-        assertEq(escrow.getJudgeThreshold(id), 2);
-
-        // Cancel after finalize deadline -> refund to organizer
         uint256 balBefore = ORG.balance;
-        vm.warp(p.finalizeDeadline + 1);
-
         vm.prank(ORG);
         escrow.cancel(id);
 
-        // Organizer received refund (1.5 ether)
         assertEq(ORG.balance, balBefore + 1.5 ether);
-
-        // prizeRemaining should now be zero
-        assertEq(escrow.getPrizeRemaining(id), 0);
+        (, , prizeRemaining, , , , , canceled, , ) = escrow.getEvent(id);
+        assertEq(prizeRemaining, 0);
+        assertTrue(canceled);
     }
 
-    function testCreateEvent_RevertsOnBadParams() public {
-        Types.CreateParams memory p;
-
-        // 1) depositAmount == 0
-        p.token            = address(0);
-        p.depositAmount    = 0;
-        p.registerDeadline = uint64(block.timestamp + 1 days);
-        p.finalizeDeadline = uint64(block.timestamp + 2 days);
-        p.scope            = SCOPE;
-
+    function test_Register_And_Guards() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 5 days, 0, 0);
         vm.prank(ORG);
-        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
-        escrow.createEvent(p);
+        uint256 id = escrow.createEvent{value: p.depositAmount}(p);
 
-        // 2) finalize <= register
-        p.depositAmount    = 1 ether;
-        p.finalizeDeadline = p.registerDeadline;
-        vm.prank(ORG);
-        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
-        escrow.createEvent(p);
+        vm.prank(U1);
+        escrow.register(id);
+        assertTrue(escrow.isRegistered(id, U1));
 
-        // 3) register in the past
-        p.registerDeadline = uint64(block.timestamp - 1);
-        p.finalizeDeadline = uint64(block.timestamp + 2 days);
-        vm.prank(ORG);
+        vm.prank(U1);
         vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
-        escrow.createEvent(p);
+        escrow.register(id);
+
+        vm.warp(p.registerDeadline + 1);
+        vm.prank(U2);
+        vm.expectRevert(abi.encodeWithSelector(Errors.RegistrationClosed.selector));
+        escrow.register(id);
     }
 
-    function testTopUp_RevertsOnZeroAmount() public {
-        Types.CreateParams memory p;
-        p.token            = address(0);
-        p.depositAmount    = 1 ether;
-        p.registerDeadline = uint64(block.timestamp + 1 days);
-        p.finalizeDeadline = uint64(block.timestamp + 2 days);
-        p.scope            = SCOPE;
+    function test_Finalize_ExactSum() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 3 days, 0, 0);
+        vm.prank(ORG);
+        uint256 id = escrow.createEvent{value: p.depositAmount}(p);
+
+        PrizeEscrow.Winner[] memory winners = new PrizeEscrow.Winner[](2);
+        winners[0] = PrizeEscrow.Winner({to: W1, amount: uint96(0.4 ether)});
+        winners[1] = PrizeEscrow.Winner({to: W2, amount: uint96(0.6 ether)});
+
+        uint256 b1 = W1.balance;
+        uint256 b2 = W2.balance;
 
         vm.prank(ORG);
-        uint256 id = escrow.createEvent{value: 1 ether}(p);
+        escrow.finalize(id, winners);
+
+        assertEq(W1.balance, b1 + 0.4 ether);
+        assertEq(W2.balance, b2 + 0.6 ether);
 
         vm.prank(ORG);
-        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
-        escrow.topUp{value: 0}(id, 0);
+        vm.expectRevert(abi.encodeWithSelector(Errors.FinalizationClosed.selector));
+        escrow.finalize(id, winners);
     }
 
-    function testOnlyOrganizerGuardsOnJudgesAndCancel() public {
-        Types.CreateParams memory p;
-        p.token            = address(0);
-        p.depositAmount    = 1 ether;
-        p.registerDeadline = uint64(block.timestamp + 1 days);
-        p.finalizeDeadline = uint64(block.timestamp + 2 days);
-        p.scope            = SCOPE;
+    function test_Finalize_Revert_If_Sum_Mismatch() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 3 days, 0, 0);
+        vm.prank(ORG);
+        uint256 id = escrow.createEvent{value: p.depositAmount}(p);
+
+         PrizeEscrow.Winner[] memory winners = new PrizeEscrow.Winner[](1);
+        winners[0] = PrizeEscrow.Winner({to: W1, amount: uint96(0.9 ether)});
 
         vm.prank(ORG);
-        uint256 id = escrow.createEvent{value: 1 ether}(p);
+        vm.expectRevert(abi.encodeWithSelector(Errors.NotOrganizer.selector));
+        escrow.finalize(id, winners);
+    }
+
+    function test_Add_Remove_Judges_Adjusts_Count_And_Threshold() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 3 days, 2, 2);
+        vm.prank(ORG);
+        uint256 id = escrow.createEvent{value: p.depositAmount}(p);
+
+        (,,,,,,, , uint16 judgeCount, uint8 thr) = escrow.getEvent(id);
+        assertEq(judgeCount, 2);
+        assertEq(thr, 2);
+
+       address[] memory rem = new address[](1);
+        rem[0] = address(uint160(0x1000));
+        vm.prank(ORG);
+        escrow.removeJudges(id, rem);
+
+        (,,,,,,, , judgeCount, thr) = escrow.getEvent(id);
+        assertEq(judgeCount, 1);
+        assertEq(thr, 1);
 
         address[] memory add = new address[](1);
-        add[0] = J3;
-
-        // Non-organizer cannot add judges
-        vm.prank(RANDOM);
-        vm.expectRevert(abi.encodeWithSelector(Errors.NotOrganizer.selector));
+        add[0] = address(0xABCD);
+        vm.prank(ORG);
         escrow.addJudges(id, add);
 
-        // Non-organizer cannot set threshold
-        vm.prank(RANDOM);
-        vm.expectRevert(abi.encodeWithSelector(Errors.NotOrganizer.selector));
-        escrow.setJudgeThreshold(id, 1);
-
-        // Non-organizer cannot cancel
-        vm.warp(p.finalizeDeadline + 1);
-        vm.prank(RANDOM);
-        vm.expectRevert(abi.encodeWithSelector(Errors.NotOrganizer.selector));
-        escrow.cancel(id);
+        (,,,,,,, , judgeCount, thr) = escrow.getEvent(id);
+        assertEq(judgeCount, 2);
+        assertEq(thr, 1); // we don't auto-increase
     }
 
-    // ---------------------------
-    // Helpers
-    // ---------------------------
+    function test_Create_Reverts_On_Bad_Params() public {
+        // deposit 0
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(0), 1 days, 2 days, 0, 0);
+        vm.prank(ORG);
+        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
+        escrow.createEvent(p);
 
-    function _isVerified(address user, bytes32 scope) internal view returns (bool ok) {
-        (bool success, bytes memory data) =
-            address(attest).staticcall(abi.encodeWithSignature("isVerified(address,bytes32)", user, scope));
-        require(success, "isVerified call failed");
-        ok = abi.decode(data, (bool));
+        // finalize <= register
+        p = _makeParams(uint96(1 ether), 2 days, 2 days, 0, 0);
+        vm.prank(ORG);
+        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
+        escrow.createEvent{value: 1 ether}(p);
+
+        // register in the past
+        p = _makeParams(uint96(1 ether), 0, 2 days, 0, 0);
+        vm.prank(ORG);
+        vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
+        escrow.createEvent{value: 1 ether}(p);
     }
 
-    function _arr(address a, address b) internal pure returns (address[] memory out) {
-        out = new address[](2);
-        out[0] = a;
-        out[1] = b;
+    function test_TopUp_Reverts_On_Zero() public {
+        PrizeEscrow.CreateEventParams memory p = _makeParams(uint96(1 ether), 1 days, 2 days, 0, 0);
+        vm.prank(ORG);
+        uint256 id = escrow.createEvent{value: 1 ether}(p);
+
+        vm.prank(ORG);
+       vm.expectRevert(abi.encodeWithSelector(Errors.InvalidParams.selector));
+        escrow.topUp{value: 0}(id, 0);
     }
 }

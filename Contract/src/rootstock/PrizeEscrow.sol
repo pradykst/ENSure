@@ -1,70 +1,129 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.25;
 
-import {Types} from "../common/Types.sol";
-import {Errors} from "../common/Errors.sol";
-import {EscrowEvents} from "../common/Events.sol";
-import {IIdentityAttestations} from "../interfaces/IIdentityAttestations.sol";
-import {IERC20} from "../interfaces/IERC20.sol";
-import {SafeERC20} from "../libs/SafeERC20.sol";
-import {ReentrancyGuard} from "../utils/ReentrancyGuard.sol";
+/// @title PrizeEscrow (no-attestor version)
+/// @notice Event escrow for prize pools with simple registration (no on-chain verification)
 
-/**
- * Milestone-2 additions:
- * - register(eventId): only verified humans (via IdentityAttestations) can register before registerDeadline.
- * - finalize(eventId, winners[]): organizer-only; sum(amounts) must equal prizeRemaining exactly; pays everyone, marks finalized.
- */
+interface IERC20 {
+    function transfer(address to, uint256 value) external returns (bool);
+    function transferFrom(address from, address to, uint256 value) external returns (bool);
+}
+
+/// --------------------
+/// Custom Errors
+/// --------------------
+error InvalidParams();
+error BadValue();
+error NotOrganizer();
+error EventClosed();
+error RegistrationClosed();
+error AlreadyRegistered();
+error AlreadyFinalized();
+error AlreadyCanceled();
+error NotFound();
+error TransferFailed();
+
+/// --------------------
+/// Reentrancy Guard
+/// --------------------
+abstract contract ReentrancyGuard {
+    uint256 private constant _ENTERED = 1;
+    uint256 private constant _NOT_ENTERED = 2;
+    uint256 private _status = _NOT_ENTERED;
+
+    modifier nonReentrant() {
+        if (_status == _ENTERED) revert();
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
+    }
+}
+
+/// --------------------
+/// Main Contract
+/// --------------------
 contract PrizeEscrow is ReentrancyGuard {
-    using SafeERC20 for address;
+    /// --- Types
+    struct CreateEventParams {
+        address token;               // address(0) => native tRBTC
+        uint96  depositAmount;       // initial pool to lock
+        uint64  registerDeadline;    // unix ts
+        uint64  finalizeDeadline;    // unix ts
+        address[] judges;            // optional list for UI (not enforced in this version)
+        uint8   judgeThreshold;      // optional for UI (not enforced in this version)
+        bytes32 scope;               // kept for UI/reference only
+    }
 
-    uint256 public constant MAX_JUDGES   = 64;
-    uint256 public constant MAX_WINNERS  = 64;
+    struct Winner {
+        address to;
+        uint96 amount;
+    }
 
     struct EventData {
+        // config
         address organizer;
-        address token;  // address(0) = RBTC
-        uint96  prizeRemaining;
+        address token;
         uint64  registerDeadline;
         uint64  finalizeDeadline;
         bytes32 scope;
+
+        // state
         bool    finalized;
         bool    canceled;
+        uint96  prizeRemaining;
 
-        // judges
+        // judges (kept for UI; not enforced here)
+        uint16 judgeCount;
+        uint8  judgeThreshold;
         mapping(address => bool) isJudge;
-        uint16  judgeCount;
-        uint8   judgeThreshold;
 
-        // NEW: registrations
+        // participants
         mapping(address => bool) registered;
     }
 
-    uint256 public nextId;
+    /// --- Storage
+    uint256 private _eventCount;
     mapping(uint256 => EventData) private _events;
 
-    IIdentityAttestations public attestations;
+    /// --- Events
+    event EventCreated(
+        uint256 indexed id,
+        address indexed organizer,
+        address indexed token,
+        uint96 deposit,
+        uint64 registerDeadline,
+        uint64 finalizeDeadline,
+        bytes32 scope
+    );
 
-    constructor(address attestations_) {
-        attestations = IIdentityAttestations(attestations_);
-    }
+    event ToppedUp(uint256 indexed id, uint96 amount);
+    event Registered(uint256 indexed id, address indexed user);
+    event Finalized(uint256 indexed id, Winner[] winners);
+    event Canceled(uint256 indexed id);
+    event JudgesAdded(uint256 indexed id, address[] judges);
+    event JudgesRemoved(uint256 indexed id, address[] judges);
 
-    // -------- Modifiers --------
+    /// --- Modifiers
     modifier exists(uint256 id) {
-        if (_events[id].organizer == address(0)) revert Errors.EventNotFound();
+        if (id == 0 || id > _eventCount) revert NotFound();
         _;
     }
     modifier onlyOrganizer(uint256 id) {
-        if (msg.sender != _events[id].organizer) revert Errors.NotOrganizer();
+        if (_events[id].organizer != msg.sender) revert NotOrganizer();
         _;
     }
     modifier open(uint256 id) {
         EventData storage e = _events[id];
-        if (e.finalized) revert Errors.AlreadyFinalized();
-        if (e.canceled) revert Errors.AlreadyCanceled();
+        if (e.finalized || e.canceled) revert EventClosed();
         _;
     }
 
-    // -------- Views --------
+    /// --- Views
+    function totalEvents() external view returns (uint256) {
+        return _eventCount;
+    }
+
+    /// Packed read for UI
     function getEvent(uint256 id)
         external
         view
@@ -72,240 +131,194 @@ contract PrizeEscrow is ReentrancyGuard {
         returns (
             address organizer,
             address token,
-            uint96  prizeRemaining,
-            uint64  registerDeadline,
-            uint64  finalizeDeadline,
+            uint96 prizeRemaining,
+            uint64 registerDeadline,
+            uint64 finalizeDeadline,
             bytes32 scope,
-            bool    finalized,
-            bool    canceled,
-            uint16  judgeCount,
-            uint8   judgeThreshold
+            bool finalized,
+            bool canceled,
+            uint16 judgeCount,
+            uint8 judgeThreshold
         )
     {
         EventData storage e = _events[id];
-        return (
-            e.organizer,
-            e.token,
-            e.prizeRemaining,
-            e.registerDeadline,
-            e.finalizeDeadline,
-            e.scope,
-            e.finalized,
-            e.canceled,
-            e.judgeCount,
-            e.judgeThreshold
-        );
-    }
-
-    function isJudge(uint256 id, address user) external view exists(id) returns (bool) {
-        return _events[id].isJudge[user];
-    }
-
-    function getPrizeRemaining(uint256 id) external view exists(id) returns (uint96) {
-        return _events[id].prizeRemaining;
-    }
-
-    function getJudgeThreshold(uint256 id) external view exists(id) returns (uint8) {
-        return _events[id].judgeThreshold;
+        organizer = e.organizer;
+        token = e.token;
+        prizeRemaining = e.prizeRemaining;
+        registerDeadline = e.registerDeadline;
+        finalizeDeadline = e.finalizeDeadline;
+        scope = e.scope;
+        finalized = e.finalized;
+        canceled = e.canceled;
+        judgeCount = e.judgeCount;
+        judgeThreshold = e.judgeThreshold;
     }
 
     function isRegistered(uint256 id, address user) external view exists(id) returns (bool) {
         return _events[id].registered[user];
     }
 
-    function createEvent(Types.CreateParams calldata p) external payable returns (uint256 id)
-     {
-        if (p.depositAmount == 0) revert Errors.InvalidParams();
-        if (p.finalizeDeadline <= p.registerDeadline) revert Errors.InvalidParams();
-        if (p.registerDeadline <= block.timestamp) revert Errors.InvalidParams();
-        if (p.finalizeDeadline <= block.timestamp) revert Errors.InvalidParams();
-        if (p.judges.length > MAX_JUDGES) revert Errors.TooManyJudges();
-        if (p.judgeThreshold > p.judges.length) revert Errors.InvalidParams();
+    function isJudge(uint256 id, address user) external view exists(id) returns (bool) {
+        return _events[id].isJudge[user];
+    }
 
+    /// --- Create
+    function createEvent(CreateEventParams calldata p) external payable returns (uint256 id) {
+        if (
+            p.depositAmount == 0 ||
+            p.finalizeDeadline <= p.registerDeadline ||
+            p.registerDeadline <= block.timestamp ||
+            (p.judgeThreshold > 0 && p.judgeThreshold > p.judges.length) ||
+            p.judges.length > type(uint16).max
+        ) revert InvalidParams();
+
+        // collect initial deposit
         _collect(p.token, p.depositAmount);
 
-        id = ++nextId;
+        id = ++_eventCount;
         EventData storage e = _events[id];
-        e.organizer        = msg.sender;
-        e.token            = p.token;
-        e.prizeRemaining   = p.depositAmount;
+        e.organizer = msg.sender;
+        e.token = p.token;
+        e.prizeRemaining = p.depositAmount;
         e.registerDeadline = p.registerDeadline;
         e.finalizeDeadline = p.finalizeDeadline;
-        e.scope            = p.scope;
+        e.scope = p.scope;
+        e.judgeCount = uint16(p.judges.length);
+        e.judgeThreshold = p.judgeThreshold;
 
+        // seed judges
         for (uint256 i = 0; i < p.judges.length; i++) {
             address j = p.judges[i];
-            if (j == address(0)) revert Errors.InvalidParams();
-            if (!e.isJudge[j]) {
-                e.isJudge[j] = true;
-                e.judgeCount += 1;
-            }
+            if (j == address(0)) revert InvalidParams();
+            if (e.isJudge[j]) continue;
+            e.isJudge[j] = true;
         }
-        e.judgeThreshold = uint8(p.judgeThreshold);
 
-        emit EscrowEvents.EventCreated(id, e.organizer, e.token, e.prizeRemaining, e.registerDeadline, e.finalizeDeadline, e.scope);
+        emit EventCreated(
+            id,
+            msg.sender,
+            p.token,
+            p.depositAmount,
+            p.registerDeadline,
+            p.finalizeDeadline,
+            p.scope
+        );
     }
 
-    // -------- Top up -------- (unchanged)
+    /// --- Top Up
     function topUp(uint256 id, uint96 amount) external payable exists(id) open(id) {
-        if (amount == 0) revert Errors.InvalidParams();
+        if (amount == 0) revert InvalidParams();
         EventData storage e = _events[id];
-
         _collect(e.token, amount);
-
         unchecked { e.prizeRemaining += amount; }
-        emit EscrowEvents.ToppedUp(id, amount);
+        emit ToppedUp(id, amount);
     }
 
-    // -------- Judge management -------- (unchanged)
-    function addJudges(uint256 id, address[] calldata judges)
-        external
-        exists(id)
-        onlyOrganizer(id)
-        open(id)
-    {
-        if (judges.length == 0) revert Errors.InvalidParams();
-        EventData storage e = _events[id];
-
-        for (uint256 i = 0; i < judges.length; i++) {
-            address j = judges[i];
-            if (j == address(0)) revert Errors.InvalidParams();
-            if (!e.isJudge[j]) {
-                if (e.judgeCount + 1 > MAX_JUDGES) revert Errors.TooManyJudges();
-                e.isJudge[j] = true;
-                e.judgeCount += 1;
-            }
-        }
-        if (e.judgeThreshold > e.judgeCount) {
-            e.judgeThreshold = uint8(e.judgeCount);
-        }
-        emit EscrowEvents.JudgesAdded(id, judges);
-    }
-
-    function removeJudges(uint256 id, address[] calldata judges)
-        external
-        exists(id)
-        onlyOrganizer(id)
-        open(id)
-    {
-        if (judges.length == 0) revert Errors.InvalidParams();
-        EventData storage e = _events[id];
-
-        for (uint256 i = 0; i < judges.length; i++) {
-            address j = judges[i];
-            if (e.isJudge[j]) {
-                e.isJudge[j] = false;
-                e.judgeCount -= 1;
-            }
-        }
-        if (e.judgeThreshold > e.judgeCount) {
-            e.judgeThreshold = uint8(e.judgeCount);
-        }
-        emit EscrowEvents.JudgesRemoved(id, judges);
-    }
-
-    function setJudgeThreshold(uint256 id, uint8 newThreshold)
-        external
-        exists(id)
-        onlyOrganizer(id)
-        open(id)
-    {
-        EventData storage e = _events[id];
-        if (newThreshold > e.judgeCount) revert Errors.InvalidParams();
-        e.judgeThreshold = newThreshold;
-        emit EscrowEvents.JudgeThresholdSet(id, newThreshold);
-    }
-
-    // -------- Register (NEW) --------
-    // Student clicks "Register" after being verified in-app (we check attestation here).
+    /// --- Register (NO on-chain verification)
+    /// Anyone can register during the registration window, once per address.
     function register(uint256 id) external exists(id) open(id) {
         EventData storage e = _events[id];
-        if (block.timestamp > e.registerDeadline) revert Errors.RegistrationClosed();
-        if (e.registered[msg.sender]) revert Errors.AlreadyRegistered();
-
-        // Gate on Self verification (bridge fills this later; for tests you can call setVerified on IdentityAttestations)
-        if (!attestations.isVerified(msg.sender, e.scope)) revert Errors.NotVerified();
-
+        if (block.timestamp > e.registerDeadline) revert RegistrationClosed();
+        if (e.registered[msg.sender]) revert AlreadyRegistered();
         e.registered[msg.sender] = true;
-        emit EscrowEvents.Registered(id, msg.sender);
+        emit Registered(id, msg.sender);
     }
 
-    // -------- Finalize (NEW) --------
-    // Organizer inputs winners + amounts in the frontend (e.g., 6000/4000/2000 for a 12000 pot).
-    // Enforces sum(winners.amount) == prizeRemaining. Pays and closes the event.
-    function finalize(uint256 id, Types.Winner[] calldata winners)
+    /// --- Finalize & Payout
+    /// @dev organizer-only in this version; judges metadata is informational for UI
+    /// Enforces sum(winners.amount) == prizeRemaining to avoid leftovers
+    function finalize(uint256 id, Winner[] calldata winners)
         external
-        nonReentrant
         exists(id)
-        onlyOrganizer(id)
         open(id)
+        onlyOrganizer(id)
+        nonReentrant
     {
         EventData storage e = _events[id];
-        if (block.timestamp > e.finalizeDeadline) revert Errors.FinalizationClosed();
+        if (block.timestamp > e.finalizeDeadline) revert EventClosed(); // organizer missed deadline
 
         uint256 n = winners.length;
-        if (n == 0 || n > MAX_WINNERS) revert Errors.TooManyWinners();
+        if (n == 0) revert InvalidParams();
 
-        // Sum & checks
-        uint256 sum;
-        address[] memory addrs = new address[](n);
-        uint96[]  memory amts  = new uint96[](n);
-
+        uint256 total;
         for (uint256 i = 0; i < n; i++) {
-            address to = winners[i].to;
-            uint96  a  = winners[i].amount;
-            if (to == address(0) || a == 0) revert Errors.InvalidParams();
-            if (!e.registered[to]) revert Errors.NotRegistered();
-
-            // check duplicates (O(n^2) ok for MAX_WINNERS <= 64)
-            for (uint256 j = 0; j < i; j++) {
-                if (addrs[j] == to) revert Errors.DuplicateWinner();
-            }
-
-            addrs[i] = to;
-            amts[i]  = a;
-            sum += a;
+            Winner calldata w = winners[i];
+            if (w.to == address(0) || w.amount == 0) revert InvalidParams();
+            total += uint256(w.amount);
         }
 
-        if (sum != e.prizeRemaining) revert Errors.WrongSum();
+        if (total != uint256(e.prizeRemaining)) revert InvalidParams();
 
-        // Effects then interactions
-        e.prizeRemaining = 0;
+        // mark finalized first to block reentrancy into open paths
         e.finalized = true;
 
+        // pay all
         for (uint256 i = 0; i < n; i++) {
-            _pay(e.token, addrs[i], amts[i]);
+            Winner calldata w = winners[i];
+            _pay(e.token, w.to, uint256(w.amount));
         }
 
-        emit EscrowEvents.Finalized(id, addrs, amts);
+        e.prizeRemaining = 0;
+        emit Finalized(id, winners);
     }
 
-    // -------- Cancel (unchanged) --------
-    function cancel(uint256 id)
-        external
-        exists(id)
-        onlyOrganizer(id)
-        open(id)
-        nonReentrant
-    {
+    /// --- Cancel (organizer can cancel before finalize; refund remaining)
+    function cancel(uint256 id) external exists(id) open(id) onlyOrganizer(id) nonReentrant {
         EventData storage e = _events[id];
-        if (block.timestamp <= e.finalizeDeadline) revert Errors.TooEarly();
-
-        uint96 amt = e.prizeRemaining;
-        e.prizeRemaining = 0;
         e.canceled = true;
 
-        _pay(e.token, e.organizer, amt);
-        emit EscrowEvents.Canceled(id, amt);
+        uint96 remaining = e.prizeRemaining;
+        e.prizeRemaining = 0;
+
+        if (remaining > 0) {
+            _pay(e.token, e.organizer, remaining);
+        }
+        emit Canceled(id);
     }
 
-    // -------- Internal pay/collect --------
-    function _collect(address token, uint256 amount) internal {
+    /// --- Judges admin (optional / UI only)
+    function addJudges(uint256 id, address[] calldata addrs) external exists(id) onlyOrganizer(id) open(id) {
+        EventData storage e = _events[id];
+        uint16 count = e.judgeCount;
+
+        for (uint256 i = 0; i < addrs.length; i++) {
+            address a = addrs[i];
+            if (a == address(0)) revert InvalidParams();
+            if (e.isJudge[a]) continue;
+            e.isJudge[a] = true;
+            count++;
+        }
+        if (count < e.judgeCount) revert InvalidParams(); // overflow check
+        e.judgeCount = count;
+        emit JudgesAdded(id, addrs);
+    }
+
+    function removeJudges(uint256 id, address[] calldata rem) external exists(id) onlyOrganizer(id) open(id) {
+        EventData storage e = _events[id];
+        uint16 count = e.judgeCount;
+
+        for (uint256 i = 0; i < rem.length; i++) {
+            address a = rem[i];
+            if (!e.isJudge[a]) continue;
+            e.isJudge[a] = false;
+            count--;
+        }
+        e.judgeCount = count;
+        if (e.judgeThreshold > count) {
+            // keep threshold sane
+            e.judgeThreshold = uint8(count);
+        }
+        emit JudgesRemoved(id, rem);
+    }
+
+    /// --- Internal money movement
+    function _collect(address token, uint96 amount) internal {
         if (token == address(0)) {
-            if (msg.value != amount) revert Errors.InvalidParams();
+            if (msg.value != uint256(amount)) revert BadValue();
         } else {
-            if (msg.value != 0) revert Errors.InvalidParams();
-            token.safeTransferFrom(msg.sender, address(this), amount);
+            if (msg.value != 0) revert BadValue();
+            bool ok = IERC20(token).transferFrom(msg.sender, address(this), amount);
+            if (!ok) revert TransferFailed();
         }
     }
 
@@ -313,13 +326,13 @@ contract PrizeEscrow is ReentrancyGuard {
         if (amount == 0) return;
         if (token == address(0)) {
             (bool ok, ) = to.call{value: amount}("");
-            if (!ok) revert Errors.TransferFailed();
+            if (!ok) revert TransferFailed();
         } else {
-            token.safeTransfer(to, amount);
+            bool ok = IERC20(token).transfer(to, amount);
+            if (!ok) revert TransferFailed();
         }
     }
 
-    // accept native RBTC
+    /// accept native
     receive() external payable {}
-    fallback() external payable {}
 }
