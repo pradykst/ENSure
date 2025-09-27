@@ -3,3 +3,4 @@
 /* eslint-disable */
 export * as interfaces from "./interfaces";
 export { EventEscrow__factory } from "./EventEscrow__factory";
+export { EventFactory__factory } from "./EventFactory__factory";

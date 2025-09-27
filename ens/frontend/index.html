@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>EventENSure — mock</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; margin: 24px; }
+    .card { border: 1px solid #e5e7eb; border-radius: 14px; padding: 18px; margin-bottom: 18px; box-shadow: 0 2px 10px rgba(0,0,0,.04);}
+    .row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; margin: 10px 0; align-items: center; }
+    input[type="text"], input[type="number"] { padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 10px; width: 100%; }
+    button { padding: 10px 14px; border-radius: 12px; border: 0; background: #111827; color: white; cursor: pointer; }
+    button:disabled { opacity: .6; cursor: not-allowed; }
+    small.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .muted { color:#6b7280 }
+    .ok { color:#059669 }
+    .warn { color:#b45309 }
+    .err { color:#b91c1c }
+    .pill { display:inline-block; padding: 3px 8px; background:#f3f4f6; border-radius:999px; font-size:12px; }
+    .hr { height:1px; background:#eee; margin:14px 0; }
+  </style>
+</head>
+<body>
+  <h2>EventENSure — Sepolia mock</h2>
+  <div class="card">
+    <div class="row">
+      <div>Network</div>
+      <div><span class="pill">Sepolia (11155111)</span></div>
+    </div>
+    <div class="row">
+      <div>Factory</div>
+      <div class="small mono" id="factoryAddr"></div>
+    </div>
+    <div class="row">
+      <div>Wallet</div>
+      <div>
+        <button id="btnConnect">Connect MetaMask</button>
+        <span id="addr" class="small mono muted"></span>
+      </div>
+    </div>
+    <div id="status" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Create & fund event</h3>
+    <div class="row">
+      <div>Event label</div>
+      <input id="eventLabel" type="text" placeholder="ethglobal-delhi-2025" />
+    </div>
+    <div class="row">
+      <div>Initial fund (ETH)</div>
+      <input id="fundEth" type="text" placeholder="0.01" />
+    </div>
+    <button id="btnCreate">Create event</button>
+    <div class="hr"></div>
+    <div>New event address: <span id="eventAddr" class="small mono"></span></div>
+    <div>Tx: <a id="createTx" href="#" target="_blank"></a></div>
+  </div>
+
+  <div class="card">
+    <h3>Finalize by ENS</h3>
+    <div class="row">
+      <div>Event address</div>
+      <input id="finalEvent" type="text" placeholder="0x..." />
+    </div>
+    <div class="row">
+      <div>Winners (ENS)</div>
+      <input id="winners" type="text" placeholder="alice.sepolia.eth,bob.sepolia.eth" />
+    </div>
+    <div class="row">
+      <div>Amounts (ETH)</div>
+      <input id="amounts" type="text" placeholder="0.006,0.004" />
+    </div>
+    <div class="row">
+      <div>Badge labels</div>
+      <input id="labels" type="text" placeholder="hackathon_name_winner_1,hackathon_name_winner_2" />
+    </div>
+    <div class="row">
+      <div>Strict exact sum?</div>
+      <input id="strict" type="checkbox" checked />
+    </div>
+    <button id="btnFinalize">Finalize & pay</button>
+    <div class="hr"></div>
+    <div>Finalize tx: <a id="finalizeTx" href="#" target="_blank"></a></div>
+    <div id="finalStatus" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+  <div class="card">
+    <h3>Quick ENS resolve (view)</h3>
+    <div class="row"><div>Event address</div><input id="resolveEvent" type="text" placeholder="0x..." /></div>
+    <div class="row"><div>ENS name</div><input id="resolveName" type="text" placeholder="yourname.sepolia.eth" /></div>
+    <button id="btnResolve">Resolve via contract</button>
+    <div class="hr"></div>
+    <div>Resolved address: <span id="resolved" class="small mono"></span></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/ethers@6.15.0/dist/ethers.umd.min.js"></script>
+  <script>
+  (function(){
+    // ======== CONFIG ========
+    const CHAIN_ID_HEX = '0xaa36a7'; // Sepolia
+    const FACTORY_ADDRESS = '0xb9C081a0D69Fd3e62934b734b1760Eff1Cb74352'; // your deployed factory
+
+    const FACTORY_ABI = [
+      {"inputs":[{"internalType":"address","name":"_ensRegistry","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
+      {"anonymous":false,"inputs":[{"indexed":false,"internalType":"string","name":"label","type":"string"},{"indexed":false,"internalType":"address","name":"eventContract","type":"address"},{"indexed":false,"internalType":"address","name":"organizer","type":"address"},{"indexed":false,"internalType":"uint256","name":"funded","type":"uint256"}],"name":"EventCreated","type":"event"},
+      {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"createEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"payable","type":"function"},
+      {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"getEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+      {"inputs":[],"name":"ensRegistry","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
+    ];
+
+    const EVENT_ESCROW_ABI = [
+      {"type":"constructor","inputs":[{"name":"_organizer","type":"address"},{"name":"_eventLabel","type":"string"},{"name":"_ensRegistry","type":"address"}],"stateMutability":"payable"},
+      {"type":"function","name":"eventLabel","inputs":[],"outputs":[{"type":"string"}],"stateMutability":"view"},
+      {"type":"function","name":"fund","inputs":[],"outputs":[],"stateMutability":"payable"},
+      {"type":"function","name":"resolveENS","inputs":[{"name":"name","type":"string"}],"outputs":[{"type":"address"}],"stateMutability":"view"},
+      {"type":"function","name":"finalize","inputs":[
+        {"name":"winnerENS","type":"string[]"},
+        {"name":"amounts","type":"uint256[]"},
+        {"name":"badgeLabels","type":"string[]"},
+        {"name":"strictExact","type":"bool"}
+      ],"outputs":[],"stateMutability":"nonpayable"},
+      {"type":"function","name":"withdrawRemainder","inputs":[],"outputs":[],"stateMutability":"nonpayable"},
+      {"type":"event","name":"Funded","inputs":[{"name":"from","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false}],"anonymous":false},
+      {"type":"event","name":"WinnerPaid","inputs":[
+        {"name":"ensName","type":"string","indexed":false},
+        {"name":"to","type":"address","indexed":true},
+        {"name":"amount","type":"uint256","indexed":false},
+        {"name":"tokenId","type":"uint256","indexed":false},
+        {"name":"badgeLabel","type":"string","indexed":false}
+      ],"anonymous":false}
+    ];
+
+    // ======== STATE ========
+    let provider, signer, factory, account;
+
+    // ======== DOM ========
+    const $ = (id) => document.getElementById(id);
+    $('factoryAddr').textContent = FACTORY_ADDRESS;
+
+    const setStatus = (msg, cls='muted') => { const el=$('status'); el.className=cls; el.textContent=msg; };
+    const setFinal = (msg, cls='muted') => { const el=$('finalStatus'); el.className=cls; el.textContent=msg; };
+
+    // ======== HELPERS ========
+    async function ensureSepolia() {
+      try {
+        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
+      } catch (err) {
+        // if chain not added
+        if (err && err.code === 4902) {
+          await window.ethereum.request({
+            method: 'wallet_addEthereumChain',
+            params: [{
+              chainId: CHAIN_ID_HEX,
+              chainName: 'Sepolia',
+              rpcUrls: ['https://rpc.sepolia.org'],
+              nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
+              blockExplorerUrls: ['https://sepolia.etherscan.io']
+            }]
+          });
+        } else { throw err; }
+      }
+    }
+
+    async function connect() {
+      if (!window.ethereum) { alert('Install MetaMask'); return; }
+      await ensureSepolia();
+      provider = new ethers.BrowserProvider(window.ethereum);
+      await provider.send('eth_requestAccounts', []);
+      signer = await provider.getSigner();
+      account = await signer.getAddress();
+      $('addr').textContent = account;
+      factory = new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
+      setStatus('Connected to Sepolia ✔︎', 'ok');
+    }
+
+    async function createEvent() {
+      if (!signer) { await connect(); }
+      setStatus('Creating event...', 'muted');
+      const label = $('eventLabel').value.trim();
+      const fundEth = $('fundEth').value.trim() || '0';
+      if (!label) return setStatus('Please enter an event label.', 'warn');
+
+      try {
+        const value = ethers.parseEther(fundEth);
+        const tx = await factory.createEvent(label, { value });
+        const rc = await tx.wait();
+        const link = `https://sepolia.etherscan.io/tx/${rc.hash}`;
+        $('createTx').href = link; $('createTx').textContent = rc.hash;
+
+        // read the event address from mapping
+        const eventAddr = await factory.getEvent(label);
+        $('eventAddr').textContent = eventAddr;
+        $('finalEvent').value = eventAddr; // prefill finalize form
+        $('resolveEvent').value = eventAddr;
+        setStatus('Event created ✔︎', 'ok');
+      } catch (e) {
+        console.error(e);
+        setStatus(`Error: ${e.message ?? e}`, 'err');
+      }
+    }
+
+    async function finalize() {
+      if (!signer) { await connect(); }
+      setFinal('Finalizing...', 'muted');
+
+      const evAddr = $('finalEvent').value.trim();
+      const winners = $('winners').value.split(',').map(s => s.trim()).filter(Boolean);
+      const amountsEth = $('amounts').value.split(',').map(s => s.trim()).filter(Boolean);
+      const labels = $('labels').value.split(',').map(s => s.trim()).filter(Boolean);
+      const strict = $('strict').checked;
+
+      if (!ethers.isAddress(evAddr)) return setFinal('Enter a valid event address.', 'warn');
+      if (!(winners.length && winners.length===amountsEth.length && winners.length===labels.length)) {
+        return setFinal('Lengths mismatch: winners, amounts, labels', 'warn');
+      }
+
+      try {
+        const amounts = amountsEth.map(ethers.parseEther);
+        const ev = new ethers.Contract(evAddr, EVENT_ESCROW_ABI, signer);
+        const tx = await ev.finalize(winners, amounts, labels, strict);
+        const rc = await tx.wait();
+        const link = `https://sepolia.etherscan.io/tx/${rc.hash}`;
+        $('finalizeTx').href = link; $('finalizeTx').textContent = rc.hash;
+        setFinal('Finalized and paid ✔︎', 'ok');
+      } catch (e) {
+        console.error(e);
+        setFinal(`Error: ${e.reason || e.shortMessage || e.message || e}`, 'err');
+      }
+    }
+
+    async function resolveViaContract() {
+      try {
+        const evAddr = $('resolveEvent').value.trim();
+        const name = $('resolveName').value.trim();
+        if (!ethers.isAddress(evAddr) || !name) return;
+        const ev = new ethers.Contract(evAddr, EVENT_ESCROW_ABI, provider || new ethers.BrowserProvider(window.ethereum));
+        const addr = await ev.resolveENS(name);
+        $('resolved').textContent = addr;
+      } catch (e) {
+        $('resolved').textContent = 'error: ' + (e.reason || e.message || e);
+      }
+    }
+
+    // ======== BIND ========
+    $('btnConnect').onclick = connect;
+    $('btnCreate').onclick = createEvent;
+    $('btnFinalize').onclick = finalize;
+    $('btnResolve').onclick = resolveViaContract;
+  })();
+  </script>
+</body>
+</html>

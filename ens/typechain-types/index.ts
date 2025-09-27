@@ -34,6 +34,8 @@ export type { Strings } from "./@openzeppelin/contracts/utils/Strings";
 export { Strings__factory } from "./factories/@openzeppelin/contracts/utils/Strings__factory";
 export type { EventEscrow } from "./contracts/EventEscrow";
 export { EventEscrow__factory } from "./factories/contracts/EventEscrow__factory";
+export type { EventFactory } from "./contracts/EventFactory";
+export { EventFactory__factory } from "./factories/contracts/EventFactory__factory";
 export type { IAddrResolver } from "./contracts/interfaces/IAddrResolver";
 export { IAddrResolver__factory } from "./factories/contracts/interfaces/IAddrResolver__factory";
 export type { IENSRegistry } from "./contracts/interfaces/IENSRegistry";

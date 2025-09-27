@@ -4,3 +4,4 @@
 import type * as interfaces from "./interfaces";
 export type { interfaces };
 export type { EventEscrow } from "./EventEscrow";
+export type { EventFactory } from "./EventFactory";

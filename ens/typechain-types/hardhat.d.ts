@@ -70,6 +70,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.EventEscrow__factory>;
     getContractFactory(
+      name: "EventFactory",
+      signerOrOptions?: ethers.Signer | FactoryOptions
+    ): Promise<Contracts.EventFactory__factory>;
+    getContractFactory(
       name: "IAddrResolver",
       signerOrOptions?: ethers.Signer | FactoryOptions
     ): Promise<Contracts.IAddrResolver__factory>;
@@ -149,6 +153,11 @@ declare module "hardhat/types/runtime" {
       signer?: ethers.Signer
     ): Promise<Contracts.EventEscrow>;
     getContractAt(
+      name: "EventFactory",
+      address: string | ethers.Addressable,
+      signer?: ethers.Signer
+    ): Promise<Contracts.EventFactory>;
+    getContractAt(
       name: "IAddrResolver",
       address: string | ethers.Addressable,
       signer?: ethers.Signer
@@ -216,6 +225,10 @@ declare module "hardhat/types/runtime" {
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.EventEscrow>;
     deployContract(
+      name: "EventFactory",
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.EventFactory>;
+    deployContract(
       name: "IAddrResolver",
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.IAddrResolver>;
@@ -294,6 +307,11 @@ declare module "hardhat/types/runtime" {
       args: any[],
       signerOrOptions?: ethers.Signer | DeployContractOptions
     ): Promise<Contracts.EventEscrow>;
+    deployContract(
+      name: "EventFactory",
+      args: any[],
+      signerOrOptions?: ethers.Signer | DeployContractOptions
+    ): Promise<Contracts.EventFactory>;
     deployContract(
       name: "IAddrResolver",
       args: any[],
