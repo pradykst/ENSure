@@ -13,4 +13,12 @@ library Errors {
     error TooEarly();
     error TransferFailed();
     error Reentrancy();
+
+    // NEW
+    error NotVerified();
+    error AlreadyRegistered();
+    error NotRegistered();
+    error TooManyWinners();
+    error DuplicateWinner();
+    error WrongSum();
 }
