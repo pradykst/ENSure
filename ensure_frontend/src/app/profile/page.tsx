@@ -255,11 +255,11 @@ export default function ProfilePage() {
   const NFT_CONTRACT = process.env.NEXT_PUBLIC_NFT_CONTRACT as `0x${string}` | undefined;
 
   const nftByEvent: Record<number, NftMeta> = {
-    1: { image: '/nfts/1.png', tokenId: '1', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
-    2: { image: '/nfts/2.png', tokenId: '42', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
-    3: { image: '/nfts/3.png', tokenId: '1337', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
-    4: { image: '/nfts/4.png', tokenId: '7', contract: NFT_CONTRACT, chain: 'sepolia' },
-    5: { image: '/nfts/4.png', tokenId: '8', contract: NFT_CONTRACT, chain: 'sepolia' },
+    1: { image: '/nfts/1.png', tokenId: '0', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
+    2: { image: '/nfts/2.png', tokenId: '1', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
+    3: { image: '/nfts/3.png', tokenId: '2', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
+    4: { image: '/nfts/4.png', tokenId: '3', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
+    5: { image: '/nfts/4.png', tokenId: '7', contract: NFT_CONTRACT, chain: 'rootstock-testnet' },
   };
 
   const [open, setOpen] = useState(false);
@@ -273,7 +273,7 @@ export default function ProfilePage() {
   const explorerFor = (meta: NftMeta) => {
     const base =
       meta.chain === 'rootstock-testnet'
-        ? 'https://explorer.testnet.rootstock.io'
+        ? 'https://explorer.testnet.rootstock.io/address/0x4Ae9Dba99b907F6c48CD3Ec8C834181110A457dD'
         : 'https://sepolia.etherscan.io';
     if (meta.contract) {
       // generic address page; customize to a token route if you deploy a real NFT
