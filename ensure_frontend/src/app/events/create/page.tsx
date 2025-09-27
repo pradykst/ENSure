@@ -5,6 +5,7 @@ import Image from 'next/image';
 import { useAccount, useChainId, useSwitchChain, useConnect, useDisconnect, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { parseEther, formatEther, isAddress, zeroAddress } from 'viem';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 import { rootstockTestnet } from '@/lib/chains';
 
 /** ──────────────────────────────────────────────────────────────────────────
@@ -735,20 +736,7 @@ export default function EscrowPage() {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-white/10 py-8" style={{ backgroundColor: '#0C1120' }}>
-        <div className="mx-auto max-w-7xl px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative h-7 w-7 overflow-hidden rounded-lg ring-1 ring-white/10">
-              <Image src="/ensure.png" alt="ENSure" fill className="object-cover" />
-            </div>
-            <span className="text-sm text-white/85 font-semibold">ENSure</span>
-          </div>
-          <div className="text-xs text-white/60">
-            Rootstock Testnet · tRBTC ·{' '}
-            <span className="font-mono">PrizeEscrow: {PRIZE_ESCROW_ADDR.slice(0, 6)}…{PRIZE_ESCROW_ADDR.slice(-4)}</span>
-          </div>
-        </div>
-      </footer>
+      <Footer />
     </div>
   );
 }

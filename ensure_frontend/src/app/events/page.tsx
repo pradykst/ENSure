@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import { Header } from '@/components/Header';
+import { Footer } from '@/components/Footer';
 
 type Status = 'upcoming' | 'ongoing' | 'ended';
 
@@ -200,6 +201,7 @@ export default function EventsPage() {
             ))}
           </div>
         </div>
+        <Footer />
       </div>
     );
   }
@@ -368,6 +370,8 @@ export default function EventsPage() {
           </div>
         )}
       </section>
+      
+      <Footer />
     </div>
   );
 }
