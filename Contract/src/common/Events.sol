@@ -11,7 +11,13 @@ library EscrowEvents {
         uint64 finalizeDeadline,
         bytes32 scope
     );
+
     event ToppedUp(uint256 indexed eventId, uint96 amount);
+
+    // NEW
+    event Registered(uint256 indexed eventId, address indexed user);
+    event Finalized(uint256 indexed eventId, address[] winners, uint96[] amounts);
+
     event JudgesAdded(uint256 indexed eventId, address[] judges);
     event JudgesRemoved(uint256 indexed eventId, address[] judges);
     event JudgeThresholdSet(uint256 indexed eventId, uint8 newThreshold);
