@@ -1,57 +1,223 @@
-# Sample Hardhat 3 Beta Project (`node:test` and `viem`)
+# ENS CLI - Enhanced ENS Registration & Resolution
 
-This project showcases a Hardhat 3 Beta project using the native Node.js test runner (`node:test`) and the `viem` library for Ethereum interactions.
+A comprehensive CLI tool for ENS (Ethereum Name Service) registration and resolution across multiple networks.
 
-To learn more about the Hardhat 3 Beta, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3 Beta](https://hardhat.org/hardhat3-beta-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+## 🚀 Quick Start
 
-## Project Overview
+### Prerequisites
 
-This example project includes:
+- Node.js 18+ and pnpm
+- Private key for your wallet
+- RPC endpoints for the networks you want to use
 
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using [`node:test`](nodejs.org/api/test.html), the new Node.js native test runner, and [`viem`](https://viem.sh/).
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
+### Installation
 
-## Usage
+```bash
+# Install dependencies
+pnpm install
 
-### Running Tests
-
-To run all the tests in the project, execute the following command:
-
-```shell
-npx hardhat test
+# Set up environment variables
+cp .env.example .env
+# Edit .env with your credentials
 ```
 
-You can also selectively run the Solidity or `node:test` tests:
+### Environment Setup
 
-```shell
-npx hardhat test solidity
-npx hardhat test nodejs
+Create a `.env` file with the following variables:
+
+```bash
+# Required
+PRIVATE_KEY=your_private_key_here
+
+# RPC Endpoints (choose based on your needs)
+HOLESKY_RPC_URL=https://holesky.infura.io/v3/YOUR_PROJECT_ID
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/YOUR_PROJECT_ID  
+ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
+
+# Optional (auto-detected if not provided)
+ENS_REGISTRY=0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e
+ENS_CONTROLLER=0x253553366da8546fc250f225fe3d25d0c782303b
 ```
 
-### Make a deployment to Sepolia
+## 📋 Commands
 
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
-
-To run the deployment to a local chain:
-
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
+### Test Commands
+```bash
+# Test ENS contracts connection
+pnpm ens test
 ```
 
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
+### Registration Commands
+```bash
+# Get registration price
+pnpm ens quote <label> -y 1
 
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
+# Commit to register (step 1)
+pnpm ens commit <label> [--secret 0x...]
 
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
+# Check commitment status
+pnpm ens status <label> --secret 0x...
 
-```shell
-npx hardhat keystore set SEPOLIA_PRIVATE_KEY
+# Register name (step 2)
+pnpm ens register <label> -y 1 --secret 0x...
+
+# Full flow: commit -> wait -> register
+pnpm ens all <label> -y 1 [--wait <seconds>]
 ```
 
-After setting the variable, you can run the deployment with the Sepolia network:
+### Resolution Commands
+```bash
+# Resolve ENS name to address
+pnpm ens resolve <name> [--network mainnet|sepolia|holesky]
 
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
+# Reverse resolve address to name
+pnpm ens reverse <address> [--network mainnet|sepolia|holesky]
 ```
+
+## 🌐 Network Support
+
+### Mainnet (Recommended for Production)
+- **Status**: ✅ Fully functional
+- **Use Case**: Production ENS registration and resolution
+- **RPC**: `ETHEREUM_RPC_URL`
+- **Controller**: `0x253553366da8546fc250f225fe3d25d0c782303b`
+- **Registry**: `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e`
+
+### Holesky Testnet (Recommended for Testing)
+- **Status**: ⚠️ Limited functionality
+- **Use Case**: Testing ENS resolution (registration may be unreliable)
+- **RPC**: `HOLESKY_RPC_URL`
+- **Controller**: `0xfce6ce4373cb6e7e470eaa55329638acd9dbd202`
+- **Registry**: `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e`
+- **Public Resolver**: `0x6925affda98274fe0376250187ccc4ac62866dcd`
+
+### Sepolia Testnet (Limited Support)
+- **Status**: ❌ Registration broken
+- **Use Case**: Testing ENS resolution only
+- **RPC**: `SEPOLIA_RPC_URL`
+- **Controller**: `0xfb3ce5d01e0f33f41dbb39035db9745962f1f968`
+- **Registry**: `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e`
+
+## ⚠️ Important Testnet Limitations
+
+### ETHRegistrarController Address (Testnet Status)
+
+**Network Specific**: The ETHRegistrarController address varies by network.
+
+**Sepolia/Holesky (2025 Status)**: Registration via ETHRegistrarController is currently broken or unavailable on Sepolia and Holesky due to missing or unwired contracts. Attempts to call functions like `available(name)` or `commit()` may result in empty reverts and failures. This is documented in ENS DAO governance discussions and there is no guarantee of stable testnet registration at the moment.
+
+**Recommendations**:
+- Use **mainnet** for reliable ENS registration
+- Use **testnets** only for resolution testing
+- If testnet registration fails, this is expected behavior
+
+## 🧪 Usage Examples
+
+### Test Network Connection
+```bash
+# Test Holesky connection
+pnpm ens test
+
+# Test mainnet resolution
+pnpm ens resolve vitalik.eth --network mainnet
+```
+
+### Registration Flow (Mainnet)
+```bash
+# 1. Check if name is available and get price
+pnpm ens quote myname -y 1
+
+# 2. Commit to register (save the secret!)
+pnpm ens commit myname --secret 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+
+# 3. Wait for commitment to mature (usually 60 seconds)
+pnpm ens status myname --secret 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+
+# 4. Register the name
+pnpm ens register myname -y 1 --secret 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef
+```
+
+### One-Command Registration
+```bash
+# Full flow: commit -> wait -> register
+pnpm ens all myname -y 1
+```
+
+### Resolution Testing
+```bash
+# Resolve on mainnet
+pnpm ens resolve vitalik.eth --network mainnet
+
+# Resolve on Holesky (if you have a testnet name)
+pnpm ens resolve myname.eth --network holesky
+
+# Reverse resolve
+pnpm ens reverse 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --network mainnet
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues
+
+#### "could not decode result data" Error
+- **Cause**: Wrong network or flaky RPC endpoint
+- **Solution**: 
+  - Verify you're using the correct network
+  - Try switching to a different RPC provider (Infura/Alchemy)
+  - Use `pnpm ens test` to diagnose the issue
+
+#### "No contract code at address" Error
+- **Cause**: Wrong controller address for the network
+- **Solution**: The CLI auto-detects correct addresses, but verify your network
+
+#### Registration Fails on Testnet
+- **Cause**: Testnet registration is unreliable (expected behavior)
+- **Solution**: Use mainnet for actual registration
+
+### RPC Endpoint Issues
+
+If you encounter RPC issues, try these reliable endpoints:
+
+**Infura:**
+```bash
+HOLESKY_RPC_URL=https://holesky.infura.io/v3/YOUR_PROJECT_ID
+ETHEREUM_RPC_URL=https://mainnet.infura.io/v3/YOUR_PROJECT_ID
+```
+
+**Alchemy:**
+```bash
+HOLESKY_RPC_URL=https://eth-holesky.g.alchemy.com/v2/YOUR_API_KEY
+ETHEREUM_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/YOUR_API_KEY
+```
+
+## 🏗️ For Developers
+
+### Integration with Your DApp
+
+If you're building an EventEscrow or similar dApp:
+
+1. **Cross-chain ENS Resolution**: Resolve ENS names on the same chain as your contract
+2. **Mainnet Names**: Use `--network mainnet` for resolution
+3. **Testnet Names**: Use `--network holesky` for resolution
+4. **Contract Deployment**: Deploy your contract on the same network as the ENS names you want to resolve
+
+### Contract Addresses Reference
+
+| Network | Registry | Controller | Public Resolver |
+|---------|----------|------------|-----------------|
+| Mainnet | `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e` | `0x253553366da8546fc250f225fe3d25d0c782303b` | Auto-detected |
+| Holesky | `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e` | `0xfce6ce4373cb6e7e470eaa55329638acd9dbd202` | `0x6925affda98274fe0376250187ccc4ac62866dcd` |
+| Sepolia | `0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e` | `0xfb3ce5d01e0f33f41dbb39035db9745962f1f968` | Auto-detected |
+
+## 📚 Additional Resources
+
+- [ENS Documentation](https://docs.ens.domains/)
+- [ENS Deployments](https://docs.ens.domains/ens-deployments)
+- [ENS DAO Governance](https://discuss.ens.domains/)
+
+## ⚠️ Disclaimer
+
+- Testnet registration is unreliable and may fail
+- Always test on mainnet before production use
+- Keep your private keys secure
+- This tool is for development and testing purposes

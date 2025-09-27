@@ -16,10 +16,15 @@ import { ethers } from 'ethers';
 type Json = Record<string, any>;
 
 // Network configuration
-const MAINNET_REGISTRY = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e';
-const MAINNET_CONTROLLER = '0x253553366Da8546fC250F225fe3d25d0C782303b';
-const SEPOLIA_REGISTRY = '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e'; // Same as mainnet
-const SEPOLIA_CONTROLLER = '0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968';
+const MAINNET_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e';
+const MAINNET_CONTROLLER = '0x253553366da8546fc250f225fe3d25d0c782303b';
+const SEPOLIA_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e'; // Same as mainnet
+const SEPOLIA_CONTROLLER = '0xfb3ce5d01e0f33f41dbb39035db9745962f1f968';
+
+// Note: ENS on Sepolia has known issues. Consider using Holesky testnet instead
+const HOLESKY_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e';
+const HOLESKY_CONTROLLER = '0xfce6ce4373cb6e7e470eaa55329638acd9dbd202';
+const HOLESKY_PUBLIC_RESOLVER = '0x6925affda98274fe0376250187ccc4ac62866dcd';
 
 const PK = process.env.PRIVATE_KEY!;
 
@@ -29,7 +34,7 @@ if (!PK) {
 }
 
 // Network selection function
-function getNetworkConfig(network: 'mainnet' | 'sepolia') {
+function getNetworkConfig(network: 'mainnet' | 'sepolia' | 'holesky') {
   if (network === 'mainnet') {
     return {
       rpc: process.env.ETHEREUM_RPC_URL || process.env.MAINNET_RPC_URL,
@@ -37,12 +42,19 @@ function getNetworkConfig(network: 'mainnet' | 'sepolia') {
       controller: process.env.ENS_CONTROLLER || MAINNET_CONTROLLER,
       name: 'Ethereum Mainnet'
     };
+  } else if (network === 'holesky') {
+    return {
+      rpc: process.env.HOLESKY_RPC_URL,
+      registry: process.env.ENS_REGISTRY || HOLESKY_REGISTRY,
+      controller: process.env.ENS_CONTROLLER || HOLESKY_CONTROLLER,
+      name: 'Holesky Testnet'
+    };
   } else {
     return {
       rpc: process.env.SEPOLIA_RPC_URL,
       registry: process.env.ENS_REGISTRY || SEPOLIA_REGISTRY,
       controller: process.env.ENS_CONTROLLER || SEPOLIA_CONTROLLER,
-      name: 'Sepolia Testnet'
+      name: 'Sepolia Testnet (⚠️ Known Issues)'
     };
   }
 }
@@ -119,20 +131,38 @@ const CTRL_ABI = [
 ] as const;
 
 /* ---------- wiring ---------- */
-// For registration commands, we'll use Sepolia by default
-const config = getNetworkConfig('sepolia');
+// For registration commands, we'll use Holesky by default (more reliable than Sepolia)
+let config = getNetworkConfig('holesky');
 if (!config.rpc) {
-  console.error('Missing SEPOLIA_RPC_URL in .env for registration');
+  console.error('Missing HOLESKY_RPC_URL in .env for registration');
+  console.log('\n💡 Alternative: Use Sepolia testnet (has known issues)');
+  console.log('   Set SEPOLIA_RPC_URL in .env and use --network sepolia');
   process.exit(1);
 }
+
+console.log(`✅ Using ${config.name} for ENS operations (recommended for testing)`);
 
 const provider = new ethers.JsonRpcProvider(config.rpc);
 const wallet   = new ethers.Wallet(PK, provider);
 const registry = new ethers.Contract(config.registry, REG_ABI, wallet);
 const ctrl     = new ethers.Contract(config.controller, CTRL_ABI, wallet);
 
+// Preflight check: verify contract has code
+async function verifyContractCode() {
+  const code = await provider.getCode(ctrl.target as string);
+  if (code === '0x') {
+    throw new Error(`No contract code at ${ctrl.target} on this RPC. Are you on the correct network?`);
+  }
+  console.log(`✅ Controller has code (${code.length} bytes)`);
+}
+
 async function getPublicResolver(): Promise<string> {
-  // resolver.eth → its resolver → addr(resolver.eth) = PublicResolver
+  // For Holesky, use the known Public Resolver address
+  if (config.name.includes('Holesky')) {
+    return HOLESKY_PUBLIC_RESOLVER;
+  }
+  
+  // For other networks, try to resolve resolver.eth
   const node = namehash('resolver.eth');
   const resOnResolver = await registry.resolver(node);
   if (resOnResolver === ethers.ZeroAddress) return ethers.ZeroAddress;
@@ -145,11 +175,21 @@ async function getPublicResolver(): Promise<string> {
 
 async function rentPrice(label: string, dur: bigint): Promise<bigint> {
   try {
-    const v: bigint = await (ctrl as any)['rentPrice(string,uint256)'](label, dur);
+    // Try the simple rentPrice function first with static call
+    const v: bigint = await ctrl.rentPrice.staticCall(label, dur);
     return v;
-  } catch {
-    const t: { base: bigint; premium: bigint } = await (ctrl as any)['rentPrice(string,uint256)'](label, dur);
-    return (t.base ?? 0n) + (t.premium ?? 0n);
+  } catch (e: any) {
+    console.log(`⚠️  rentPrice failed: ${e.message}`);
+    try {
+      // Try the tuple version with static call
+      const t: { base: bigint; premium: bigint } = await ctrl.rentPrice.staticCall(label, dur);
+      return (t.base ?? 0n) + (t.premium ?? 0n);
+    } catch (e2: any) {
+      console.error(`❌ Both rentPrice methods failed: ${e2.message}`);
+      console.log(`💡 This might be an RPC issue. Try switching endpoints:`);
+      console.log(`   HOLESKY_RPC_URL=https://holesky.infura.io/v3/YOUR_KEY`);
+      throw new Error(`Cannot get rent price: ${e2.message}`);
+    }
   }
 }
 
@@ -184,9 +224,63 @@ function validateName(name: string): boolean {
 }
 
 /* ---------- commands ---------- */
+async function cmdTest() {
+  console.log(`🧪 Testing ENS contracts on ${config.name}...`);
+  
+  try {
+    // Test network connection
+    const network = await provider.getNetwork();
+    console.log(`✅ Network: ${network.name} (${Number(network.chainId)})`);
+    
+    // Test wallet
+    console.log(`✅ Wallet: ${wallet.address}`);
+    
+    // Test contract code
+    await verifyContractCode();
+    
+    // Test registry
+    try {
+      const resolver = await registry.resolver(namehash('eth'));
+      console.log(`✅ Registry: Connected (resolver.eth = ${resolver})`);
+    } catch (e: any) {
+      console.log(`❌ Registry: Failed - ${e.message}`);
+    }
+    
+    // Test controller with static call
+    try {
+      const available = await ctrl.available.staticCall('test');
+      console.log(`✅ Controller: Connected (test.eth available = ${available})`);
+    } catch (e: any) {
+      console.log(`❌ Controller: Failed - ${e.message}`);
+      console.log(`💡 Try switching to a different RPC endpoint (Infura/Alchemy)`);
+      console.log(`💡 Current RPC: ${config.rpc}`);
+    }
+    
+  } catch (e: any) {
+    console.error(`❌ Test failed: ${e.message}`);
+  }
+}
+
 async function cmdQuote(label: string, years = 1) {
   if (!validateLabel(label)) {
     console.error(`❌ Invalid label: ${label}. Must be lowercase alphanumeric with hyphens, 1-63 chars, no leading/trailing hyphens.`);
+    process.exit(1);
+  }
+  
+  console.log(`🔍 Testing ENS controller connection...`);
+  
+  try {
+    // Verify contract has code first
+    await verifyContractCode();
+    
+    // Test if controller is working with static call
+    const available = await ctrl.available.staticCall(label);
+    console.log(`✅ Controller connected. ${label}.eth is ${available ? 'available' : 'NOT available'}`);
+  } catch (e: any) {
+    console.error(`❌ Controller test failed: ${e.message}`);
+    console.log(`💡 Try switching to a different RPC endpoint:`);
+    console.log(`   HOLESKY_RPC_URL=https://holesky.infura.io/v3/YOUR_KEY`);
+    console.log(`   or https://eth-holesky.g.alchemy.com/v2/YOUR_KEY`);
     process.exit(1);
   }
   
@@ -319,7 +413,7 @@ async function cmdAll(label: string, years = 1, waitSec = 60) {
   await cmdRegister(label, years, secret);
 }
 
-async function cmdResolve(name: string, network: 'mainnet' | 'sepolia' = 'mainnet') {
+async function cmdResolve(name: string, network: 'mainnet' | 'sepolia' | 'holesky' = 'mainnet') {
   if (!validateName(name)) {
     console.error(`❌ Invalid name: ${name}. Must be a valid ENS name (e.g., vitalik.eth)`);
     process.exit(1);
@@ -327,7 +421,10 @@ async function cmdResolve(name: string, network: 'mainnet' | 'sepolia' = 'mainne
   
   const config = getNetworkConfig(network);
   if (!config.rpc) {
-    console.error(`❌ Missing RPC URL for ${config.name}. Set ${network === 'mainnet' ? 'ETHEREUM_RPC_URL' : 'SEPOLIA_RPC_URL'} in .env`);
+    let rpcVar = 'ETHEREUM_RPC_URL';
+    if (network === 'sepolia') rpcVar = 'SEPOLIA_RPC_URL';
+    if (network === 'holesky') rpcVar = 'HOLESKY_RPC_URL';
+    console.error(`❌ Missing RPC URL for ${config.name}. Set ${rpcVar} in .env`);
     process.exit(1);
   }
   
@@ -373,7 +470,7 @@ async function cmdResolve(name: string, network: 'mainnet' | 'sepolia' = 'mainne
   }
 }
 
-async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' = 'mainnet') {
+async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' | 'holesky' = 'mainnet') {
   // Validate address
   if (!ethers.isAddress(address)) {
     console.error(`❌ Invalid address: ${address}`);
@@ -382,7 +479,10 @@ async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' = 'mai
   
   const config = getNetworkConfig(network);
   if (!config.rpc) {
-    console.error(`❌ Missing RPC URL for ${config.name}. Set ${network === 'mainnet' ? 'ETHEREUM_RPC_URL' : 'SEPOLIA_RPC_URL'} in .env`);
+    let rpcVar = 'ETHEREUM_RPC_URL';
+    if (network === 'sepolia') rpcVar = 'SEPOLIA_RPC_URL';
+    if (network === 'holesky') rpcVar = 'HOLESKY_RPC_URL';
+    console.error(`❌ Missing RPC URL for ${config.name}. Set ${rpcVar} in .env`);
     process.exit(1);
   }
   
@@ -448,9 +548,15 @@ async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' = 'mai
   const { cmd, args, flags } = parseArgs();
   try {
     // Determine network for resolve/reverse commands
-    const network = (flags.network === 'sepolia' || flags.network === 'testnet') ? 'sepolia' : 'mainnet';
+    let network: 'mainnet' | 'sepolia' | 'holesky' = 'mainnet';
+    if (flags.network === 'sepolia' || flags.network === 'testnet') {
+      network = 'sepolia';
+    } else if (flags.network === 'holesky') {
+      network = 'holesky';
+    }
     
-    if (cmd === 'quote')      await cmdQuote(args[0], Number(flags.years ?? 1));
+    if (cmd === 'test')       await cmdTest();
+    else if (cmd === 'quote')      await cmdQuote(args[0], Number(flags.years ?? 1));
     else if (cmd === 'commit')    await cmdCommit(args[0], flags.secret);
     else if (cmd === 'status')    await cmdStatus(args[0], flags.secret);
     else if (cmd === 'register')  await cmdRegister(args[0], Number(flags.years ?? 1), flags.secret);
@@ -460,6 +566,9 @@ async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' = 'mai
     else {
       console.log(`ENS Sepolia CLI - Enhanced ENS Registration & Resolution
       
+Test Commands:
+  pnpm ens test                                 # Test ENS contracts connection
+
 Registration Commands:
   pnpm ens quote <label> -y 1                    # Get registration price
   pnpm ens commit <label> [--secret 0x...]      # Commit to register (step 1)
@@ -468,22 +577,39 @@ Registration Commands:
   pnpm ens all <label> -y 1 [--wait <seconds>]  # Full flow: commit -> wait -> register
 
 Resolution Commands:
-  pnpm ens resolve <name> [--network mainnet|sepolia]  # Resolve ENS name to address
-  pnpm ens reverse <address> [--network mainnet|sepolia] # Reverse resolve address to name
+  pnpm ens resolve <name> [--network mainnet|sepolia|holesky]  # Resolve ENS name to address
+  pnpm ens reverse <address> [--network mainnet|sepolia|holesky] # Reverse resolve address to name
 
 Environment Variables Required:
   PRIVATE_KEY - Your wallet private key
-  SEPOLIA_RPC_URL - Sepolia RPC endpoint (for testnet operations)
+  HOLESKY_RPC_URL - Holesky RPC endpoint (✅ Default for registration)
+  SEPOLIA_RPC_URL - Sepolia RPC endpoint (⚠️ Known issues with ENS)
   ETHEREUM_RPC_URL - Mainnet RPC endpoint (for mainnet resolution)
-  ENS_REGISTRY - ENS Registry address (optional, auto-detected)
-  ENS_CONTROLLER - ENS Controller address (optional, auto-detected)
+  ENS_REGISTRY - ENS Registry address (optional, defaults to 0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e)
+  ENS_CONTROLLER - ENS Controller address (optional, auto-detected per network)
+
+Recommended RPC Endpoints:
+  HOLESKY_RPC_URL=https://holesky.infura.io/v3/YOUR_KEY
+  HOLESKY_RPC_URL=https://eth-holesky.g.alchemy.com/v2/YOUR_KEY
+
+✅ Using Holesky testnet by default for reliable ENS testing.
+
+Contract Addresses:
+  Holesky Registry: 0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e
+  Holesky Controller: 0xfce6ce4373cb6e7e470eaa55329638acd9dbd202
+  Holesky Resolver: 0x6925affda98274fe0376250187ccc4ac62866dcd
 
 Examples:
-  pnpm ens quote myname -y 1
-  pnpm ens all myname -y 1
-  pnpm ens resolve vitalik.eth --network mainnet
-  pnpm ens resolve myname.eth --network sepolia
-  pnpm ens reverse 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 --network mainnet
+  pnpm ens test                                    # Test connection
+  pnpm ens quote myname -y 1                      # Get price
+  pnpm ens all myname -y 1                        # Full registration
+  pnpm ens resolve vitalik.eth --network mainnet # Mainnet resolution
+  pnpm ens resolve myname.eth --network holesky  # Holesky resolution
+
+💡 For your EventEscrow dapp:
+  - Resolve ENS names on the same chain as your contract
+  - Use mainnet resolution for mainnet ENS names
+  - Use Holesky resolution for testnet ENS names
 `);
     }
   } catch (e:any) {

@@ -14,7 +14,9 @@
     "ens:register": "ts-node scripts/ens-cli.ts register",
     "ens:all": "ts-node scripts/ens-cli.ts all",
     "ens:resolve": "ts-node scripts/ens-cli.ts resolve",
-    "ens:reverse": "ts-node scripts/ens-cli.ts reverse"
+    "ens:reverse": "ts-node scripts/ens-cli.ts reverse",
+    "sdk:example": "ts-node src/example.ts",
+    "sdk:test": "ts-node src/example.ts"
   },
   "keywords": [],
   "author": "",
