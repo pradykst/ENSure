@@ -6,8 +6,15 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "compile": "hardhat compile",
-    "deploy:factory": "hardhat run scripts/00_deploy_factory.ts --network sepolia"
-
+    "deploy:factory": "hardhat run scripts/00_deploy_factory.ts --network sepolia",
+    "ens": "ts-node scripts/ens-cli.ts",
+    "ens:quote": "ts-node scripts/ens-cli.ts quote",
+    "ens:commit": "ts-node scripts/ens-cli.ts commit",
+    "ens:status": "ts-node scripts/ens-cli.ts status",
+    "ens:register": "ts-node scripts/ens-cli.ts register",
+    "ens:all": "ts-node scripts/ens-cli.ts all",
+    "ens:resolve": "ts-node scripts/ens-cli.ts resolve",
+    "ens:reverse": "ts-node scripts/ens-cli.ts reverse"
   },
   "keywords": [],
   "author": "",
@@ -26,6 +33,7 @@
     "viem": "^2.37.8"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^5.4.0"
+    "@openzeppelin/contracts": "^5.4.0",
+    "ethers": "^6.15.0"
   }
 }

@@ -95,159 +95,233 @@
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/ethers@6.15.0/dist/ethers.umd.min.js"></script>
-  <script>
-  (function(){
-    // ======== CONFIG ========
-    const CHAIN_ID_HEX = '0xaa36a7'; // Sepolia
-    const FACTORY_ADDRESS = '0xb9C081a0D69Fd3e62934b734b1760Eff1Cb74352'; // your deployed factory
+<script>
+(function () {
+  // ======== CONFIG ========
+  const CHAIN_ID_HEX = '0xaa36a7'; // Sepolia
+  const FACTORY_ADDRESS = '0xb9C081a0D69Fd3e62934b734b1760Eff1Cb74352';
 
-    const FACTORY_ABI = [
-      {"inputs":[{"internalType":"address","name":"_ensRegistry","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
-      {"anonymous":false,"inputs":[{"indexed":false,"internalType":"string","name":"label","type":"string"},{"indexed":false,"internalType":"address","name":"eventContract","type":"address"},{"indexed":false,"internalType":"address","name":"organizer","type":"address"},{"indexed":false,"internalType":"uint256","name":"funded","type":"uint256"}],"name":"EventCreated","type":"event"},
-      {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"createEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"payable","type":"function"},
-      {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"getEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
-      {"inputs":[],"name":"ensRegistry","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
-    ];
+  // mainnet RPCs (env first, then safe publics)
+  const MAINNET_RPCS = [
+    (window.ENV && window.ENV.MAINNET_RPC) || '',
+    'https://ethereum.publicnode.com',
+    'https://1rpc.io/eth',
+    'https://cloudflare-eth.com'
+  ].filter(Boolean);
 
-    const EVENT_ESCROW_ABI = [
-      {"type":"constructor","inputs":[{"name":"_organizer","type":"address"},{"name":"_eventLabel","type":"string"},{"name":"_ensRegistry","type":"address"}],"stateMutability":"payable"},
-      {"type":"function","name":"eventLabel","inputs":[],"outputs":[{"type":"string"}],"stateMutability":"view"},
-      {"type":"function","name":"fund","inputs":[],"outputs":[],"stateMutability":"payable"},
-      {"type":"function","name":"resolveENS","inputs":[{"name":"name","type":"string"}],"outputs":[{"type":"address"}],"stateMutability":"view"},
-      {"type":"function","name":"finalize","inputs":[
-        {"name":"winnerENS","type":"string[]"},
-        {"name":"amounts","type":"uint256[]"},
-        {"name":"badgeLabels","type":"string[]"},
-        {"name":"strictExact","type":"bool"}
-      ],"outputs":[],"stateMutability":"nonpayable"},
-      {"type":"function","name":"withdrawRemainder","inputs":[],"outputs":[],"stateMutability":"nonpayable"},
-      {"type":"event","name":"Funded","inputs":[{"name":"from","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false}],"anonymous":false},
-      {"type":"event","name":"WinnerPaid","inputs":[
-        {"name":"ensName","type":"string","indexed":false},
-        {"name":"to","type":"address","indexed":true},
-        {"name":"amount","type":"uint256","indexed":false},
-        {"name":"tokenId","type":"uint256","indexed":false},
-        {"name":"badgeLabel","type":"string","indexed":false}
-      ],"anonymous":false}
-    ];
+  const FACTORY_ABI = [
+    {"inputs":[{"internalType":"address","name":"_ensRegistry","type":"address"}],"stateMutability":"nonpayable","type":"constructor"},
+    {"anonymous":false,"inputs":[{"indexed":false,"internalType":"string","name":"label","type":"string"},{"indexed":false,"internalType":"address","name":"eventContract","type":"address"},{"indexed":false,"internalType":"address","name":"organizer","type":"address"},{"indexed":false,"internalType":"uint256","name":"funded","type":"uint256"}],"name":"EventCreated","type":"event"},
+    {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"createEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"payable","type":"function"},
+    {"inputs":[{"internalType":"string","name":"label","type":"string"}],"name":"getEvent","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"},
+    {"inputs":[],"name":"ensRegistry","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
+  ];
 
-    // ======== STATE ========
-    let provider, signer, factory, account;
+  const EVENT_ESCROW_ABI = [
+    {"type":"constructor","inputs":[{"name":"_organizer","type":"address"},{"name":"_eventLabel","type":"string"},{"name":"_ensRegistry","type":"address"}],"stateMutability":"payable"},
+    {"type":"function","name":"eventLabel","inputs":[],"outputs":[{"type":"string"}],"stateMutability":"view"},
+    {"type":"function","name":"fund","inputs":[],"outputs":[],"stateMutability":"payable"},
+    {"type":"function","name":"resolveENS","inputs":[{"name":"name","type":"string"}],"outputs":[{"type":"address"}],"stateMutability":"view"},
+    {"type":"function","name":"finalize","inputs":[
+      {"name":"winnerENS","type":"string[]"},
+      {"name":"amounts","type":"uint256[]"},
+      {"name":"badgeLabels","type":"string[]"},
+      {"name":"strictExact","type":"bool"}
+    ],"outputs":[],"stateMutability":"nonpayable"},
+    // OPTIONAL new method (recommended): payouts by address (used when names only exist on mainnet)
+    {"type":"function","name":"finalizeByAddress","inputs":[
+      {"name":"winners","type":"address[]"},
+      {"name":"amounts","type":"uint256[]"},
+      {"name":"badgeLabels","type":"string[]"},
+      {"name":"strictExact","type":"bool"}
+    ],"outputs":[],"stateMutability":"nonpayable"},
+    {"type":"function","name":"withdrawRemainder","inputs":[],"outputs":[],"stateMutability":"nonpayable"},
+    {"type":"event","name":"Funded","inputs":[{"name":"from","type":"address","indexed":true},{"name":"amount","type":"uint256","indexed":false}],"anonymous":false},
+    {"type":"event","name":"WinnerPaid","inputs":[
+      {"name":"ensName","type":"string","indexed":false},
+      {"name":"to","type":"address","indexed":true},
+      {"name":"amount","type":"uint256","indexed":false},
+      {"name":"tokenId","type":"uint256","indexed":false},
+      {"name":"badgeLabel","type":"string","indexed":false}
+    ],"anonymous":false}
+  ];
 
-    // ======== DOM ========
-    const $ = (id) => document.getElementById(id);
-    $('factoryAddr').textContent = FACTORY_ADDRESS;
+  // ======== STATE / DOM ========
+  let provider, signer, factory, account;
+  const $ = (id) => document.getElementById(id);
+  $('factoryAddr').textContent = FACTORY_ADDRESS;
+  const setStatus = (msg, cls='muted') => { const el=$('status'); el.className=cls; el.textContent=msg; };
+  const setFinal  = (msg, cls='muted') => { const el=$('finalStatus'); el.className=cls; el.textContent=msg; };
 
-    const setStatus = (msg, cls='muted') => { const el=$('status'); el.className=cls; el.textContent=msg; };
-    const setFinal = (msg, cls='muted') => { const el=$('finalStatus'); el.className=cls; el.textContent=msg; };
+  // ======== HELPERS ========
+  async function ensureSepolia() {
+    try {
+      await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
+    } catch (err) {
+      if (err && err.code === 4902) {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: CHAIN_ID_HEX,
+            chainName: 'Sepolia',
+            rpcUrls: ['https://rpc.sepolia.org'],
+            nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
+            blockExplorerUrls: ['https://sepolia.etherscan.io']
+          }]
+        });
+      } else { throw err; }
+    }
+  }
 
-    // ======== HELPERS ========
-    async function ensureSepolia() {
+  async function connect() {
+    if (!window.ethereum) { alert('Install MetaMask'); return; }
+    await ensureSepolia();
+    provider = new ethers.BrowserProvider(window.ethereum);
+    await provider.send('eth_requestAccounts', []);
+    signer = await provider.getSigner();
+    account = await signer.getAddress();
+    $('addr').textContent = account;
+    factory = new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
+    setStatus('Connected to Sepolia ✔︎', 'ok');
+  }
+
+  function parseCsv(input) {
+    return input.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  async function createEvent() {
+    if (!signer) { await connect(); }
+    setStatus('Creating event...', 'muted');
+    const label = $('eventLabel').value.trim();
+    const fundEth = $('fundEth').value.trim() || '0';
+    if (!label) return setStatus('Please enter an event label.', 'warn');
+
+    try {
+      const value = ethers.parseEther(fundEth);
+      const tx = await factory.createEvent(label, { value });
+      const rc = await tx.wait();
+      $('createTx').href = `https://sepolia.etherscan.io/tx/${rc.hash}`;
+      $('createTx').textContent = rc.hash;
+
+      const eventAddr = await factory.getEvent(label);
+      $('eventAddr').textContent = eventAddr;
+      $('finalEvent').value = eventAddr;
+      $('resolveEvent').value = eventAddr;
+      setStatus('Event created ✔︎', 'ok');
+    } catch (e) {
+      console.error(e);
+      setStatus(`Error: ${e.reason || e.shortMessage || e.message || e}`, 'err');
+    }
+  }
+
+  // Mainnet resolution (fallback list)
+  async function resolveOnMainnet(name) {
+    for (const url of MAINNET_RPCS) {
       try {
-        await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: CHAIN_ID_HEX }] });
-      } catch (err) {
-        // if chain not added
-        if (err && err.code === 4902) {
-          await window.ethereum.request({
-            method: 'wallet_addEthereumChain',
-            params: [{
-              chainId: CHAIN_ID_HEX,
-              chainName: 'Sepolia',
-              rpcUrls: ['https://rpc.sepolia.org'],
-              nativeCurrency: { name: 'Sepolia ETH', symbol: 'ETH', decimals: 18 },
-              blockExplorerUrls: ['https://sepolia.etherscan.io']
-            }]
-          });
-        } else { throw err; }
+        const p = new ethers.JsonRpcProvider(url);
+        const addr = await p.resolveName(name);
+        if (addr && addr !== ethers.ZeroAddress) return addr;
+      } catch (_) { /* try next */ }
+    }
+    return ethers.ZeroAddress;
+  }
+
+  // Try contract's onchain resolver (Sepolia ENS), then mainnet offchain
+  async function resolveNamesSmart(ev, names) {
+    const out = [];
+    for (const n of names) {
+      let a = ethers.ZeroAddress;
+      try { a = await ev.resolveENS(n); } catch (_) {}
+      if (a === ethers.ZeroAddress) {
+        a = await resolveOnMainnet(n); // off-chain mainnet
       }
+      out.push(a);
+    }
+    return out;
+  }
+
+  function hasFinalizeByAddress(ev) {
+    return typeof ev.finalizeByAddress === 'function';
+  }
+
+  async function finalize() {
+    if (!signer) { await connect(); }
+    setFinal('Finalizing...', 'muted');
+
+    const evAddr = $('finalEvent').value.trim();
+    const winnersENS = parseCsv($('winners').value);
+    const amountsEth = parseCsv($('amounts').value);
+    const labels     = parseCsv($('labels').value);
+    const strict     = $('strict').checked;
+
+    if (!ethers.isAddress(evAddr)) return setFinal('Enter a valid event address.', 'warn');
+    if (!(winnersENS.length && winnersENS.length===amountsEth.length && winnersENS.length===labels.length)) {
+      return setFinal('Lengths mismatch: winners, amounts, labels', 'warn');
     }
 
-    async function connect() {
-      if (!window.ethereum) { alert('Install MetaMask'); return; }
-      await ensureSepolia();
-      provider = new ethers.BrowserProvider(window.ethereum);
-      await provider.send('eth_requestAccounts', []);
-      signer = await provider.getSigner();
-      account = await signer.getAddress();
-      $('addr').textContent = account;
-      factory = new ethers.Contract(FACTORY_ADDRESS, FACTORY_ABI, signer);
-      setStatus('Connected to Sepolia ✔︎', 'ok');
-    }
+    try {
+      const amounts = amountsEth.map(ethers.parseEther);
+      const ev = new ethers.Contract(evAddr, EVENT_ESCROW_ABI, signer);
 
-    async function createEvent() {
-      if (!signer) { await connect(); }
-      setStatus('Creating event...', 'muted');
-      const label = $('eventLabel').value.trim();
-      const fundEth = $('fundEth').value.trim() || '0';
-      if (!label) return setStatus('Please enter an event label.', 'warn');
+      // 1) Try resolving everything (Sepolia resolver first, then mainnet)
+      const addrs = await resolveNamesSmart(ev, winnersENS);
+      const anyUnresolved = addrs.some(a => a === ethers.ZeroAddress);
 
-      try {
-        const value = ethers.parseEther(fundEth);
-        const tx = await factory.createEvent(label, { value });
-        const rc = await tx.wait();
-        const link = `https://sepolia.etherscan.io/tx/${rc.hash}`;
-        $('createTx').href = link; $('createTx').textContent = rc.hash;
-
-        // read the event address from mapping
-        const eventAddr = await factory.getEvent(label);
-        $('eventAddr').textContent = eventAddr;
-        $('finalEvent').value = eventAddr; // prefill finalize form
-        $('resolveEvent').value = eventAddr;
-        setStatus('Event created ✔︎', 'ok');
-      } catch (e) {
-        console.error(e);
-        setStatus(`Error: ${e.message ?? e}`, 'err');
-      }
-    }
-
-    async function finalize() {
-      if (!signer) { await connect(); }
-      setFinal('Finalizing...', 'muted');
-
-      const evAddr = $('finalEvent').value.trim();
-      const winners = $('winners').value.split(',').map(s => s.trim()).filter(Boolean);
-      const amountsEth = $('amounts').value.split(',').map(s => s.trim()).filter(Boolean);
-      const labels = $('labels').value.split(',').map(s => s.trim()).filter(Boolean);
-      const strict = $('strict').checked;
-
-      if (!ethers.isAddress(evAddr)) return setFinal('Enter a valid event address.', 'warn');
-      if (!(winners.length && winners.length===amountsEth.length && winners.length===labels.length)) {
-        return setFinal('Lengths mismatch: winners, amounts, labels', 'warn');
+      if (anyUnresolved) {
+        setFinal('Error: some names could not be resolved on Sepolia or mainnet.', 'err');
+        return;
       }
 
-      try {
-        const amounts = amountsEth.map(ethers.parseEther);
-        const ev = new ethers.Contract(evAddr, EVENT_ESCROW_ABI, signer);
-        const tx = await ev.finalize(winners, amounts, labels, strict);
-        const rc = await tx.wait();
-        const link = `https://sepolia.etherscan.io/tx/${rc.hash}`;
-        $('finalizeTx').href = link; $('finalizeTx').textContent = rc.hash;
+      // 2) Prefer paying by address if available (works for mainnet-only names)
+      let tx, rc;
+      if (hasFinalizeByAddress(ev)) {
+        tx = await ev.finalizeByAddress(addrs, amounts, labels, strict);
+      } else {
+        // Fall back to original finalize (will only succeed if names resolve inside contract)
+        // Using this path because your contract doesn't expose finalizeByAddress.
+        // If the names are mainnet-only, this will likely revert.
+        tx = await ev.finalize(winnersENS, amounts, labels, strict);
+      }
+
+      rc = await tx.wait();
+      $('finalizeTx').href = `https://sepolia.etherscan.io/tx/${rc.hash}`;
+      $('finalizeTx').textContent = rc.hash;
+
+      if (!hasFinalizeByAddress(ev)) {
+        setFinal('Paid using on-chain ENS resolution. For mainnet-only names, add finalizeByAddress to the contract.', 'warn');
+      } else {
         setFinal('Finalized and paid ✔︎', 'ok');
-      } catch (e) {
-        console.error(e);
+      }
+    } catch (e) {
+      console.error(e);
+      // Helpful error for missing function
+      if ((e.message||'').includes('finalizeByAddress') && (e.message||'').includes('is not a function')) {
+        setFinal('Contract does not have finalizeByAddress(address[],...). Redeploy with that method or use Sepolia ENS names.', 'err');
+      } else {
         setFinal(`Error: ${e.reason || e.shortMessage || e.message || e}`, 'err');
       }
     }
+  }
 
-    async function resolveViaContract() {
-      try {
-        const evAddr = $('resolveEvent').value.trim();
-        const name = $('resolveName').value.trim();
-        if (!ethers.isAddress(evAddr) || !name) return;
-        const ev = new ethers.Contract(evAddr, EVENT_ESCROW_ABI, provider || new ethers.BrowserProvider(window.ethereum));
-        const addr = await ev.resolveENS(name);
-        $('resolved').textContent = addr;
-      } catch (e) {
-        $('resolved').textContent = 'error: ' + (e.reason || e.message || e);
-      }
+  // Quick test resolve: uses mainnet RPC directly
+  async function resolveViaContract() {
+    try {
+      const name = $('resolveName').value.trim();
+      if (!name) return;
+      const addr = await resolveOnMainnet(name);
+      $('resolved').textContent = addr;
+    } catch (e) {
+      $('resolved').textContent = 'error: ' + (e.reason || e.message || e);
     }
+  }
 
-    // ======== BIND ========
-    $('btnConnect').onclick = connect;
-    $('btnCreate').onclick = createEvent;
-    $('btnFinalize').onclick = finalize;
-    $('btnResolve').onclick = resolveViaContract;
-  })();
-  </script>
+  // ======== BIND ========
+  $('btnConnect').onclick = connect;
+  $('btnCreate').onclick = createEvent;
+  $('btnFinalize').onclick = finalize;
+  $('btnResolve').onclick = resolveViaContract;
+})();
+</script>
+
 </body>
 </html>
