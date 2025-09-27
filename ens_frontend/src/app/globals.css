@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+/* Brand tokens */
+:root{
+  --brand-primary:#2962FF;   /* Deep Ethereum Blue */
+  --brand-secondary:#651FFF; /* Deep Violet */
+  --brand-accent:#00E5FF;    /* Electric Cyan */
+  --brand-dark:#1A1A2E;      /* Digital Dark Grey */
+  --brand-bg:#FFFFFF;        /* Clean White */
+}
+
+html,body{ background:var(--brand-bg); }
+
+/* Utilities you can reuse */
+.bg-brand-gradient{ background: linear-gradient(90deg,#2962FF 0%,#651FFF 100%); }
+.btn-brand{
+  @apply inline-flex items-center justify-center px-5 py-3 rounded-xl text-white shadow;
+  background-image: linear-gradient(90deg,#2962FF,#651FFF);
+}
+.badge-verified{
+  @apply inline-flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full border;
+  color: var(--brand-dark);
+  border-color: var(--brand-accent);
+  background: color-mix(in srgb, var(--brand-accent) 18%, transparent);
+}
