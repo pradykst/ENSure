@@ -1,3 +1,4 @@
+// App.tsx
 import React, { useMemo, useState, useEffect } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
@@ -12,32 +13,59 @@ import { injected } from "wagmi/connectors";
 import { parseEther, formatEther, isAddress, zeroAddress } from "viem";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-/**
- * Rootstock PrizeEscrow Demo UI (no verification gating)
- * - Register is now independent of attestations
- * - All event lifecycle operations supported
- *
- * Update PRIZE_ESCROW_ADDR with your deployed address.
+// --- Firebase ---
+import { initializeApp } from "firebase/app";
+import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
+
+/** ============================================================
+ *  CONFIG
+ *  ============================================================
  */
 
-// === CONFIG ===
+// 🔧 Fill these from your Firebase Console (Web App config)
+const firebaseConfig = {
+  apiKey: "AIzaSyDcuSp0152x80ocz7hrqFFYWaj9HK-GB7A",
+  authDomain: "ethglobal-e3029.firebaseapp.com",
+  projectId: "ethglobal-e3029",
+  storageBucket: "ethglobal-e3029.firebasestorage.app",
+  messagingSenderId: "562887644165",
+  appId: "1:562887644165:web:77320675b4f79e16a1f86c",
+  measurementId: "G-W6YPS4XC3X"
+};
+const _app = initializeApp(firebaseConfig);
+const db = getFirestore(_app);
+
+// Rootstock Testnet (RSK Testnet)
 const ROOTSTOCK_TESTNET = {
   id: 31,
   name: "Rootstock Testnet",
   nativeCurrency: { name: "tRBTC", symbol: "tRBTC", decimals: 18 },
-  rpcUrls: {
-    // Public node is stable for frontend usage
-    default: { http: ["https://public-node.testnet.rsk.co"] },
-  },
+  rpcUrls: { default: { http: ["https://public-node.testnet.rsk.co"] } },
 };
 
-// --- Deployed PrizeEscrow address ---
+// PrizeEscrow contract address (your deployed address)
 const PRIZE_ESCROW_ADDR = "0xaB376f64F16481E496DdD3336Dd12f7F9a58bAd3" as `0x${string}`;
 
-// --- tRIF (RIF on Rootstock Testnet) ---
+// tRIF (Rootstock Testnet RIF) – public test address
 const TRIF_ADDRESS = "0x19f64674D8a5b4e652319F5e239EFd3bc969a1FE" as `0x${string}`;
 
-// --- Minimal ERC-20 ABI for approve/allowance ---
+// Optional: WRBTC (WETH9-style wrapper) address if you have it
+const WRBTC_ADDRESS = "" as `0x${string}` | "";
+
+// wagmi config
+const config = createConfig({
+  chains: [ROOTSTOCK_TESTNET],
+  connectors: [injected()],
+  transports: { [ROOTSTOCK_TESTNET.id]: http(ROOTSTOCK_TESTNET.rpcUrls.default.http[0]) },
+});
+
+const queryClient = new QueryClient();
+
+/** ============================
+ *  ABIs
+ *  ============================
+ */
+
 const ERC20_ABI = [
   {
     type: "function",
@@ -68,7 +96,21 @@ const ERC20_ABI = [
   },
 ] as const;
 
-// --- Minimal PrizeEscrow ABI (only what we use) ---
+const WETH9_ABI = [
+  { type: "function", name: "deposit", stateMutability: "payable", inputs: [], outputs: [] },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
+  },
+  { type: "function", name: "decimals", stateMutability: "view", inputs: [], outputs: [{ type: "uint8" }] },
+] as const;
+
 const PRIZE_ESCROW_ABI = [
   {
     type: "function",
@@ -145,16 +187,19 @@ const PRIZE_ESCROW_ABI = [
   },
 ] as const;
 
-const config = createConfig({
-  chains: [ROOTSTOCK_TESTNET],
-  connectors: [injected()],
-  transports: { [ROOTSTOCK_TESTNET.id]: http(ROOTSTOCK_TESTNET.rpcUrls.default.http[0]) },
-});
-
-const queryClient = new QueryClient();
-
-// ---------- UI Helpers ----------
-function Section({ title, children, className = "" }: { title: string; children: React.ReactNode; className?: string }) {
+/** ============================
+ *  Small UI helpers
+ *  ============================
+ */
+function Section({
+  title,
+  children,
+  className = "",
+}: {
+  title: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
   return (
     <div className={`bg-white rounded-xl shadow-lg border border-gray-100 p-6 mb-8 ${className}`}>
       <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b border-gray-200 pb-3">{title}</h2>
@@ -169,7 +214,10 @@ function Button({
   children,
   className = "",
   ...props
-}: React.ButtonHTMLAttributes<HTMLButtonElement> & { variant?: "primary" | "secondary" | "success" | "danger"; size?: "sm" | "md" | "lg" }) {
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: "primary" | "secondary" | "success" | "danger";
+  size?: "sm" | "md" | "lg";
+}) {
   const base = "font-semibold rounded-lg transition-all duration-200 flex items-center justify-center";
   const variants: Record<string, string> = {
     primary:
@@ -186,7 +234,12 @@ function Button({
   );
 }
 
-function Input({ label, error, className = "", ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label?: string; error?: string; className?: string }) {
+function Input({
+  label,
+  error,
+  className = "",
+  ...props
+}: React.InputHTMLAttributes<HTMLInputElement> & { label?: string; error?: string; className?: string }) {
   return (
     <div className="flex flex-col gap-1.5">
       {label && <label className="text-sm font-semibold text-gray-700">{label}</label>}
@@ -215,12 +268,14 @@ function StatusBadge({ status, children }: { status: "success" | "warning" | "er
   );
 }
 
-// Helpers
 const isZero = (addr?: string) => !addr || addr.toLowerCase() === zeroAddress.toLowerCase();
 const isTrif = (addr?: string) => !!addr && addr.toLowerCase() === TRIF_ADDRESS.toLowerCase();
 const tokenLabel = (addr?: string) => (isZero(addr) ? "tRBTC" : isTrif(addr) ? "tRIF" : "tokens");
 
-// ---------- Wallet ----------
+/** ============================
+ *  Wallet
+ *  ============================
+ */
 function ConnectWallet() {
   const { connect, connectors, isPending } = useConnect();
   const { disconnect } = useDisconnect();
@@ -255,37 +310,39 @@ function ConnectWallet() {
   );
 }
 
-// ---------- Panels ----------
+/** ============================
+ *  Creator Panel
+ *  ============================
+ */
 function CreatorPanel() {
   const { address, chainId } = useAccount();
-  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { writeContract, writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
+  const [eventName, setEventName] = useState("");
   const [useERC20, setUseERC20] = useState(false);
   const [token, setToken] = useState<string>(TRIF_ADDRESS);
+  const [wrapFirst, setWrapFirst] = useState(false); // WETH/WRBTC flow
   const [deposit, setDeposit] = useState("0.1");
   const [regDays, setRegDays] = useState(7);
   const [finDays, setFinDays] = useState(14);
   const [scopeStr, setScopeStr] = useState("SELF_HUMAN_13+");
   const [judges, setJudges] = useState("");
   const [threshold, setThreshold] = useState(0);
-  // NEW: manual gas price override (Rootstock likes legacy gas); default 0.1 gwei
-  const [gasPriceWei, setGasPriceWei] = useState<string>("100000000");
+  const [gasPriceWei, setGasPriceWei] = useState<string>("100000000"); // ~0.1 gwei
 
   const scopeBytes = useMemo(() => {
-    const encoder = new TextEncoder();
-    const bytes = encoder.encode(scopeStr);
-    const hex = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
-    return "0x" + (hex.length > 64 ? hex.slice(0, 64) : hex.padEnd(64, "0"));
+    const hex = Array.from(new TextEncoder().encode(scopeStr)).map((b) => b.toString(16).padStart(2, "0")).join("");
+    return ("0x" + (hex.length > 64 ? hex.slice(0, 64) : hex.padEnd(64, "0"))) as `0x${string}`;
   }, [scopeStr]);
 
-  // Read current allowance when ERC-20 is selected
+  // allowance when ERC-20 is selected
   const { data: allowance } = useReadContract({
     address: useERC20 && isAddress(token) ? (token as `0x${string}`) : undefined,
     abi: ERC20_ABI,
     functionName: "allowance",
     args: address ? [address as `0x${string}`, PRIZE_ESCROW_ADDR] : undefined,
-    // @ts-ignore wagmi will ignore undefined address/args
+    // @ts-ignore
     query: { enabled: useERC20 && !!address && isAddress(token) },
   } as any);
 
@@ -295,12 +352,11 @@ function CreatorPanel() {
     try {
       if (!address) return alert("Connect wallet first");
       if (!isAddress(token)) return alert("Invalid token address");
-      await writeContract({
+      await writeContractAsync({
         address: token as `0x${string}`,
         abi: ERC20_ABI,
         functionName: "approve",
         args: [PRIZE_ESCROW_ADDR, parseEther(deposit || "0")],
-        // Rootstock: set a small gasPrice if your wallet doesn't
         gasPrice: BigInt(gasPriceWei || "0"),
       });
     } catch (err: any) {
@@ -309,18 +365,34 @@ function CreatorPanel() {
     }
   };
 
-  async function onCreate() {
+  const persistToFirestore = async (txHash: string, p: any) => {
+    const provisionalId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    await setDoc(doc(db, "events", provisionalId), {
+      provisional: true,
+      name: eventName.trim(),
+      creator: address,
+      token: p.token,
+      registerDeadline: Number(p.registerDeadline),
+      finalizeDeadline: Number(p.finalizeDeadline),
+      startDate: new Date().toISOString(),
+      endDate: new Date(Number(p.finalizeDeadline) * 1000).toISOString(),
+      createdAt: serverTimestamp(),
+      txHash,
+    });
+  };
+
+  const onCreate = async () => {
     try {
       if (!address) return alert("Connect wallet first");
       if (chainId !== 31) return alert("Switch to Rootstock Testnet (chainId 31)");
+      if (!eventName.trim()) return alert("Please enter an event name");
       if (!deposit || Number(deposit) <= 0) return alert("Enter a positive deposit amount");
-      if (useERC20 && !isAddress(token)) return alert("Invalid ERC-20 token address");
-      if (useERC20 && needsApproval) return alert("Please approve the token first");
 
       const judgeArr = judges
         .split(",")
         .map((s) => s.trim())
         .filter((s) => s && isAddress(s)) as `0x${string}`[];
+      if (Number(threshold) > judgeArr.length) return alert("Required approvals cannot exceed number of judges");
 
       const p = {
         token: useERC20 ? (token as `0x${string}`) : zeroAddress,
@@ -329,37 +401,92 @@ function CreatorPanel() {
         finalizeDeadline: BigInt(Math.floor(Date.now() / 1000) + finDays * 86400),
         judges: judgeArr,
         judgeThreshold: Number(threshold),
-        scope: scopeBytes as `0x${string}`,
+        scope: scopeBytes,
       } as const;
 
-      // EXTRA: upfront sanity
-      if (p.judgeThreshold > judgeArr.length) {
-        return alert("Required approvals cannot exceed number of judges");
+      // Native tRBTC path
+      if (!useERC20) {
+        const txHash = await writeContractAsync({
+          address: PRIZE_ESCROW_ADDR,
+          abi: PRIZE_ESCROW_ABI,
+          functionName: "createEvent",
+          args: [p],
+          value: parseEther(deposit || "0"),
+          gasPrice: BigInt(gasPriceWei || "0"),
+        });
+        await persistToFirestore(txHash, p);
+        alert("Event submitted (native). Saved to Firebase (provisional).");
+        return;
       }
 
-      // Write (with legacy gas price hint)
-      await writeContract({
+      // ERC-20 path
+      if (!isAddress(token)) return alert("Invalid ERC-20 token address");
+
+      // WRAP → APPROVE → CREATE (WETH/WRBTC)
+      if (wrapFirst) {
+        const amountWei = parseEther(deposit || "0");
+        await writeContractAsync({
+          address: (token || WRBTC_ADDRESS) as `0x${string}`,
+          abi: WETH9_ABI,
+          functionName: "deposit",
+          args: [],
+          value: amountWei,
+          gasPrice: BigInt(gasPriceWei || "0"),
+        });
+        await writeContractAsync({
+          address: token as `0x${string}`,
+          abi: WETH9_ABI,
+          functionName: "approve",
+          args: [PRIZE_ESCROW_ADDR, amountWei],
+          gasPrice: BigInt(gasPriceWei || "0"),
+        });
+        const txHash = await writeContractAsync({
+          address: PRIZE_ESCROW_ADDR,
+          abi: PRIZE_ESCROW_ABI,
+          functionName: "createEvent",
+          args: [p],
+          value: 0n,
+          gasPrice: BigInt(gasPriceWei || "0"),
+        });
+        await persistToFirestore(txHash, p);
+        alert("Event submitted (wrap flow). Saved to Firebase (provisional).");
+        return;
+      }
+
+      // Regular ERC-20 (no wrapping): need allowance ahead
+      if (needsApproval) return alert("Please approve the token first");
+
+      const txHash = await writeContractAsync({
         address: PRIZE_ESCROW_ADDR,
         abi: PRIZE_ESCROW_ABI,
         functionName: "createEvent",
         args: [p],
-        value: useERC20 ? 0n : parseEther(deposit || "0"),
+        value: 0n,
         gasPrice: BigInt(gasPriceWei || "0"),
       });
+      await persistToFirestore(txHash, p);
+      alert("Event submitted (ERC-20). Saved to Firebase (provisional).");
     } catch (err: any) {
       console.error("createEvent error:", err);
       alert(`Create Event failed: ${err?.shortMessage || err?.message || "Unknown error"}`);
     }
-  }
+  };
 
   return (
-
     <Section title="🎯 Create New Event">
       <div className="space-y-6">
         {/* Token Configuration */}
         <div className="bg-gray-50 rounded-lg p-4">
           <h3 className="font-semibold text-gray-800 mb-4">Token Configuration</h3>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Input
+              label="Event Name"
+              placeholder="e.g., AI Hackathon Week 1"
+              value={eventName}
+              onChange={(e) => setEventName(e.target.value)}
+              className="lg:col-span-3"
+            />
+
             <div className="flex items-center space-x-2">
               <input
                 type="checkbox"
@@ -372,17 +499,45 @@ function CreatorPanel() {
                 Use ERC20 Token
               </label>
             </div>
+
             {useERC20 && (
-              <Input
-                label="Token Contract Address (e.g., tRIF)"
-                placeholder="0x..."
-                value={token}
-                onChange={(e) => setToken(e.target.value)}
-                className="lg:col-span-2"
-              />
+              <>
+                <Input
+                  label="Token Contract Address (tRIF / WRBTC / other ERC-20)"
+                  placeholder="0x..."
+                  value={token}
+                  onChange={(e) => setToken(e.target.value.replace(/\s+|\u200B/g, "").trim())}
+                  className="lg:col-span-2"
+                />
+                <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="checkbox"
+                      id="wrapFirst"
+                      checked={wrapFirst}
+                      onChange={(e) => setWrapFirst(e.target.checked)}
+                      className="rounded border-gray-300"
+                    />
+                    <label htmlFor="wrapFirst" className="text-sm font-medium text-gray-700">
+                      Wrap before create (WETH/WRBTC)
+                    </label>
+                  </div>
+                  <Input
+                    label="(Optional) WRBTC Address"
+                    placeholder="0x... (leave blank if unknown)"
+                    defaultValue={WRBTC_ADDRESS}
+                    onBlur={(e) => {
+                      if (!e.target.value) return;
+                      setToken(e.target.value.replace(/\s+|\u200B/g, "").trim());
+                    }}
+                    className="md:col-span-2"
+                  />
+                </div>
+              </>
             )}
+
             <Input
-              label={`Initial Prize Pool (${useERC20 ? "tokens (e.g., tRIF)" : "tRBTC"})`}
+              label={`Initial Prize Pool (${useERC20 ? "ERC-20" : "tRBTC"})`}
               type="number"
               step="0.0001"
               value={deposit}
@@ -392,7 +547,9 @@ function CreatorPanel() {
 
           {useERC20 && (
             <div className="mt-3 flex items-center gap-3">
-              {needsApproval ? (
+              {wrapFirst ? (
+                <StatusBadge status="info">Will wrap & approve automatically</StatusBadge>
+              ) : needsApproval ? (
                 <Button variant="secondary" size="sm" onClick={onApprove} disabled={isPending || isConfirming}>
                   Approve {isTrif(token) ? "tRIF" : "Token"}
                 </Button>
@@ -401,6 +558,18 @@ function CreatorPanel() {
               )}
             </div>
           )}
+
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Input
+              label="Gas Price (wei)"
+              type="number"
+              value={gasPriceWei}
+              onChange={(e) => setGasPriceWei(e.target.value)}
+            />
+            <div className="text-xs text-gray-500 md:col-span-2 flex items-end">
+              Tip: Rootstock uses legacy gas. If tx stalls, try ~0.1–1 gwei (1e8–1e9 wei).
+            </div>
+          </div>
         </div>
 
         {/* Event Timing */}
@@ -423,10 +592,9 @@ function CreatorPanel() {
             />
           </div>
           <div className="mt-3 text-sm text-gray-600">
-            <p>
-              Registration closes: {new Date(Date.now() + regDays * 24 * 60 * 60 * 1000).toLocaleDateString()}
-            </p>
-            <p>Event ends: {new Date(Date.now() + finDays * 24 * 60 * 60 * 1000).toLocaleDateString()}</p>
+            <p>Event Name: {eventName || "(not set)"}</p>
+            <p>Registration closes: {new Date(Date.now() + regDays * 86400_000).toLocaleDateString()}</p>
+            <p>Event ends: {new Date(Date.now() + finDays * 86400_000).toLocaleDateString()}</p>
           </div>
         </div>
 
@@ -484,6 +652,10 @@ function CreatorPanel() {
   );
 }
 
+/** ============================
+ *  Read Event
+ *  ============================
+ */
 function ReadEvent({ onEventLoaded }: { onEventLoaded?: (s: any) => void }) {
   const [eventId, setEventId] = useState("1");
   const { data, refetch, isLoading } = useReadContract({
@@ -653,14 +825,18 @@ function ReadEvent({ onEventLoaded }: { onEventLoaded?: (s: any) => void }) {
   );
 }
 
+/** ============================
+ *  Top Up
+ *  ============================
+ */
 function TopUpPanel() {
   const { address } = useAccount();
   const [eventId, setEventId] = useState("1");
   const [amount, setAmount] = useState("0.1");
-  const { writeContract, data: hash, isPending } = useWriteContract();
+  const [wrapBeforeTopUp, setWrapBeforeTopUp] = useState(false);
+  const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  // Read the event to learn which token it uses
   const { data: eventData } = useReadContract({
     address: PRIZE_ESCROW_ADDR,
     abi: PRIZE_ESCROW_ABI,
@@ -673,7 +849,6 @@ function TopUpPanel() {
   const token = (eventData && (eventData as any[])[1]) as string | undefined;
   const isNative = isZero(token);
 
-  // If ERC20, check allowance
   const { data: allowance } = useReadContract({
     address: !isNative && token && isAddress(token) ? (token as `0x${string}`) : undefined,
     abi: ERC20_ABI,
@@ -685,27 +860,63 @@ function TopUpPanel() {
 
   const needsApproval = !isNative && allowance !== undefined && BigInt(allowance as any) < parseEther(amount || "0");
 
-  const onApprove = () => {
-    if (!address || !token) return;
-    writeContract({
-      address: token as `0x${string}`,
-      abi: ERC20_ABI,
-      functionName: "approve",
-      args: [PRIZE_ESCROW_ADDR, parseEther(amount || "0")],
-    });
+  const onApprove = async () => {
+    try {
+      if (!address || !token) return;
+      await writeContractAsync({
+        address: token as `0x${string}`,
+        abi: ERC20_ABI,
+        functionName: "approve",
+        args: [PRIZE_ESCROW_ADDR, parseEther(amount || "0")],
+      });
+    } catch (err: any) {
+      alert(err?.shortMessage || err?.message || "Approve failed");
+    }
   };
 
-  const onTopUp = () => {
-    if (!eventId) return;
-    if (!isNative && needsApproval) return alert("Please approve the token first");
+  const onTopUp = async () => {
+    try {
+      if (!eventId) return;
+      const amtWei = parseEther(amount || "0");
 
-    writeContract({
-      address: PRIZE_ESCROW_ADDR,
-      abi: PRIZE_ESCROW_ABI,
-      functionName: "topUp",
-      args: [BigInt(eventId), parseEther(amount || "0")],
-      value: isNative ? parseEther(amount || "0") : 0n,
-    });
+      if (isNative) {
+        await writeContractAsync({
+          address: PRIZE_ESCROW_ADDR,
+          abi: PRIZE_ESCROW_ABI,
+          functionName: "topUp",
+          args: [BigInt(eventId), amtWei],
+          value: amtWei,
+        });
+        return;
+      }
+
+      if (wrapBeforeTopUp) {
+        await writeContractAsync({
+          address: token as `0x${string}`,
+          abi: WETH9_ABI,
+          functionName: "deposit",
+          args: [],
+          value: amtWei,
+        });
+      }
+      if (needsApproval) {
+        await writeContractAsync({
+          address: token as `0x${string}`,
+          abi: ERC20_ABI,
+          functionName: "approve",
+          args: [PRIZE_ESCROW_ADDR, amtWei],
+        });
+      }
+      await writeContractAsync({
+        address: PRIZE_ESCROW_ADDR,
+        abi: PRIZE_ESCROW_ABI,
+        functionName: "topUp",
+        args: [BigInt(eventId), amtWei],
+        value: 0n,
+      });
+    } catch (err: any) {
+      alert(err?.shortMessage || err?.message || "Top up failed");
+    }
   };
 
   return (
@@ -713,7 +924,7 @@ function TopUpPanel() {
       <div className="space-y-6">
         <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
           <p className="text-sm text-yellow-800">
-            <strong>Note:</strong> This event accepts {isNative ? "native tRBTC" : isTrif(token) ? "tRIF" : "ERC‑20"} payments.
+            <strong>Note:</strong> This event accepts {isNative ? "native tRBTC" : isTrif(token) ? "tRIF" : "ERC-20"} payments.
             {!isNative && " Approve before topping up."}
           </p>
         </div>
@@ -730,7 +941,18 @@ function TopUpPanel() {
         </div>
 
         {!isNative && (
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="wrapBeforeTopUp"
+                checked={wrapBeforeTopUp}
+                onChange={(e) => setWrapBeforeTopUp(e.target.checked)}
+              />
+              <label htmlFor="wrapBeforeTopUp" className="text-sm">
+                Wrap before top-up (WETH/WRBTC)
+              </label>
+            </div>
             {needsApproval ? (
               <Button variant="secondary" size="md" onClick={onApprove} disabled={isPending || isConfirming}>
                 Approve {isTrif(token) ? "tRIF" : "Token"}
@@ -756,6 +978,10 @@ function TopUpPanel() {
   );
 }
 
+/** ============================
+ *  Register Panel
+ *  ============================
+ */
 function RegisterPanel({ eventState }: { eventState: any }) {
   const { address } = useAccount();
   const [eventId, setEventId] = useState("1");
@@ -769,15 +995,15 @@ function RegisterPanel({ eventState }: { eventState: any }) {
   const finalized = Boolean(eventState?.finalized);
   const canceled = Boolean(eventState?.canceled);
 
-  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  const onRegister = () => {
+  const onRegister = async () => {
     if (!address) return alert("Connect wallet first");
     if (!eventId) return;
     if (regClosed) return alert("Registration window is closed");
     if (finalized || canceled) return alert("Event is not open");
-    writeContract({
+    await writeContractAsync({
       address: PRIZE_ESCROW_ADDR,
       abi: PRIZE_ESCROW_ABI,
       functionName: "register",
@@ -818,6 +1044,10 @@ function RegisterPanel({ eventState }: { eventState: any }) {
   );
 }
 
+/** ============================
+ *  Finalize Panel
+ *  ============================
+ */
 function FinalizePanel({ eventState }: { eventState: any }) {
   const { address } = useAccount();
   const [eventId, setEventId] = useState("1");
@@ -826,10 +1056,9 @@ function FinalizePanel({ eventState }: { eventState: any }) {
   }, [eventState?.id]);
 
   const [rows, setRows] = useState<{ to: string; amount: string }[]>([{ to: "", amount: "" }]);
-  const { writeContract, data: hash, isPending } = useWriteContract();
+  const { writeContractAsync, data: hash, isPending } = useWriteContract();
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash });
 
-  // pull live details from the parent (ReadEvent)
   const organizer = eventState?.organizer as string | undefined;
   const prizeRemainingBn = eventState?.prizeRemaining ? (BigInt(eventState.prizeRemaining) as bigint) : 0n;
   const finalizeDeadline = eventState?.finalizeDeadline ? Number(eventState.finalizeDeadline) : 0;
@@ -839,7 +1068,6 @@ function FinalizePanel({ eventState }: { eventState: any }) {
   const tokenAddr = eventState?.token as string | undefined;
 
   const now = Math.floor(Date.now() / 1000);
-  // Allow finalize if either the deadline has passed OR no approvals are required
   const canFinalizeTimewise = judgeThreshold === 0 || (finalizeDeadline > 0 && now >= finalizeDeadline);
 
   const total = useMemo(() => {
@@ -871,11 +1099,10 @@ function FinalizePanel({ eventState }: { eventState: any }) {
   if (total === 0n) reasonsDisabled.push("Total must be > 0");
   if (prizeRemainingBn > 0n && total > prizeRemainingBn) reasonsDisabled.push("Total exceeds prize pool");
 
-  // NOTE: we do NOT block by organizer in the UI; contract will enforce if only organizer can finalize.
   const disabled = isPending || isConfirming || reasonsDisabled.length > 0;
 
-  const onFinalize = () => {
-    writeContract({
+  const onFinalize = async () => {
+    await writeContractAsync({
       address: PRIZE_ESCROW_ADDR,
       abi: PRIZE_ESCROW_ABI,
       functionName: "finalize",
@@ -886,7 +1113,6 @@ function FinalizePanel({ eventState }: { eventState: any }) {
   return (
     <Section title="🏆 Finalize Event & Distribute Prizes">
       <div className="space-y-6">
-        {/* Quick context */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <Input
             label="Event ID"
@@ -897,13 +1123,18 @@ function FinalizePanel({ eventState }: { eventState: any }) {
           />
           <div className="text-sm bg-gray-50 border rounded-lg p-3">
             <div>
-              <span className="text-gray-600">Organizer</span>: <span className="font-mono">{organizer ? `${organizer.slice(0, 8)}…${organizer.slice(-6)}` : "—"}</span>
+              <span className="text-gray-600">Organizer</span>:{" "}
+              <span className="font-mono">{organizer ? `${organizer.slice(0, 8)}…${organizer.slice(-6)}` : "—"}</span>
             </div>
             <div>
-              <span className="text-gray-600">Prize Remaining</span>: <strong>{formatEther(prizeRemainingBn)} {tokenLabel(tokenAddr)}</strong>
+              <span className="text-gray-600">Prize Remaining</span>:{" "}
+              <strong>
+                {formatEther(prizeRemainingBn)} {tokenLabel(tokenAddr)}
+              </strong>
             </div>
             <div>
-              <span className="text-gray-600">Finalize Deadline</span>: {finalizeDeadline ? new Date(finalizeDeadline * 1000).toLocaleString() : "—"}
+              <span className="text-gray-600">Finalize Deadline</span>:{" "}
+              {finalizeDeadline ? new Date(finalizeDeadline * 1000).toLocaleString() : "—"}
             </div>
             <div className="mt-1">
               {canFinalizeTimewise ? (
@@ -927,7 +1158,9 @@ function FinalizePanel({ eventState }: { eventState: any }) {
                       label={`Winner ${i + 1} Address`}
                       placeholder="0x..."
                       value={r.to}
-                      onChange={(e) => setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, to: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, to: e.target.value } : x)))
+                      }
                     />
                   </div>
                   <div className="lg:col-span-3">
@@ -937,7 +1170,9 @@ function FinalizePanel({ eventState }: { eventState: any }) {
                       step="0.00001"
                       placeholder="0.0"
                       value={r.amount}
-                      onChange={(e) => setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, amount: e.target.value } : x)))}
+                      onChange={(e) =>
+                        setRows((prev) => prev.map((x, idx) => (idx === i ? { ...x, amount: e.target.value } : x)))
+                      }
                     />
                   </div>
                   <div className="lg:col-span-3 flex gap-2">
@@ -966,7 +1201,9 @@ function FinalizePanel({ eventState }: { eventState: any }) {
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <div className="flex justify-between items-center">
             <span className="font-semibold text-gray-800">Total Prize Distribution:</span>
-            <span className="text-xl font-bold text-blue-600">{formatEther(total)} {tokenLabel(tokenAddr)}</span>
+            <span className="text-xl font-bold text-blue-600">
+              {formatEther(total)} {tokenLabel(tokenAddr)}
+            </span>
           </div>
           {prizeRemainingBn > 0n && total > prizeRemainingBn && (
             <div className="mt-2 text-sm text-red-600">Total exceeds remaining prize pool.</div>
@@ -989,7 +1226,9 @@ function FinalizePanel({ eventState }: { eventState: any }) {
         {reasonsDisabled.length > 0 && (
           <div className="text-xs text-gray-600">
             {reasonsDisabled.map((r, i) => (
-              <div key={i} className="mt-1">• {r}</div>
+              <div key={i} className="mt-1">
+                • {r}
+              </div>
             ))}
           </div>
         )}
@@ -998,6 +1237,10 @@ function FinalizePanel({ eventState }: { eventState: any }) {
   );
 }
 
+/** ============================
+ *  App Root
+ *  ============================
+ */
 export default function App() {
   const [eventState, setEventState] = useState<any>(null);
 
@@ -1045,7 +1288,7 @@ export default function App() {
                   ⚠️ <strong>Testnet Demo</strong> — Rootstock uses legacy gas. If a tx stalls, set a manual gas price
                   (e.g., 0.1 gwei) in your wallet.
                 </p>
-                <p>For ERC20 events (e.g., tRIF), be sure to approve the escrow before top-up/finalize.</p>
+                <p>For ERC-20 events (tRIF/WRBTC), approve the escrow or use the wrap flow before top-up/finalize.</p>
               </div>
             </footer>
           </div>
