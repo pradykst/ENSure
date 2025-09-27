@@ -2,18 +2,11 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Sora } from 'next/font/google';
-import {
-  useAccount,
-  useConnect,
-  useDisconnect,
-  useSwitchChain,
-  useChainId,
-} from 'wagmi';
-import { ClientPortal } from '@/components/ClientPortal';
+import { useAccount } from 'wagmi';
 import { Header } from '@/components/Header';
-import { WalletConnectMenu } from '@/components/WalletConnectMenu';
+import { WalletConnectMenu as WalletConnectMenuComponent } from '@/components/WalletConnectMenu';
 
 const sora = Sora({ subsets: ['latin'] });
 
@@ -26,116 +19,7 @@ const BRAND = {
   dark: '#1A1A2E',      // Digital Dark Grey
 };
 
-const TARGET_CHAIN_ID = 31; // Rootstock Testnet
 
-function truncate(addr?: string, size = 4) {
-  if (!addr) return '';
-  return `${addr.slice(0, 2 + size)}…${addr.slice(-size)}`;
-}
-
-/** Wallet connect with modal + Rootstock switch */
-export function WalletConnectMenu() {
-const { address, isConnected } = useAccount();
-const { connect, connectors, status, error } = useConnect();
-const { disconnect } = useDisconnect();
-const { switchChain } = useSwitchChain();
-const chainId = useChainId();
-
-const [open, setOpen] = useState(false);
-const targetMismatch = useMemo(
-  () => isConnected && chainId !== TARGET_CHAIN_ID,
-  [isConnected, chainId]
-);
-
-return (
-  <div className="relative">
-    {!isConnected ? (
-      <>
-        <button
-          onClick={() => setOpen(true)}
-          className="rounded-2xl px-5 py-2.5 font-semibold text-white border border-white/12"
-          style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-        >
-          Connect Wallet
-        </button>
-
-        {open && (
-          <ClientPortal>
-            <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal>
-              <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-              <div className="relative z-10 w-full max-w-md rounded-2xl border border-white/12 bg-[#121628] p-6 shadow-2xl">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-semibold text-white">Connect a wallet</h3>
-                  <button className="text-white/70 hover:text-white" onClick={() => setOpen(false)} aria-label="Close">✕</button>
-                </div>
-
-                <div className="space-y-2">
-                  {connectors.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={async () => { await connect({ connector: c }); setOpen(false); }}
-                      className="w-full justify-between flex items-center gap-3 rounded-xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] px-4 py-3 text-left text-white transition"
-                    >
-                      <span className="font-medium">{c.name}</span>
-                      <span className="text-xs text-white/60">Click to connect</span>
-                    </button>
-                  ))}
-                </div>
-
-                {status === 'pending' && <p className="mt-4 text-xs text-white/60">Waiting for wallet…</p>}
-                {status === 'error' && <p className="mt-4 text-xs text-rose-400">{(error as Error)?.message}</p>}
-              </div>
-            </div>
-          </ClientPortal>
-        )}
-      </>
-    ) : (
-      <div className="flex items-center gap-2">
-        {targetMismatch && (
-          <button
-            onClick={() => switchChain?.({ chainId: TARGET_CHAIN_ID })}
-            className="rounded-xl px-3 py-2 text-[13px] font-semibold border border-white/12 text-white"
-            style={{ backgroundColor: 'rgba(41,98,255,0.15)' }}
-            title="Switch to Rootstock Testnet"
-          >
-            Switch to Rootstock Testnet
-          </button>
-        )}
-
-        <div className="group relative">
-          <button
-            className="rounded-2xl px-4 py-2.5 font-semibold text-white border border-white/12"
-            style={{ backgroundColor: 'rgba(255,255,255,0.06)' }}
-            title={address}
-          >
-            {truncate(address, 4)}
-          </button>
-          <div className="invisible absolute right-0 mt-2 w-48 rounded-xl border border-white/12 bg-[#121628] p-2 opacity-0 shadow-xl transition group-hover:visible group-hover:opacity-100">
-            <Link
-              href="/profile"
-              className="block rounded-lg px-3 py-2 text-sm text-white/90 hover:bg-white/[0.06]"
-            >
-              Profile
-            </Link>
-            <Link
-              href="/events"
-              className="block rounded-lg px-3 py-2 text-sm text-white/90 hover:bg-white/[0.06]"
-            >
-              Events
-            </Link>
-            <button
-              onClick={() => disconnect()}
-              className="mt-1 w-full rounded-lg px-3 py-2 text-left text-sm text-rose-300 hover:bg-white/[0.06]"
-            >
-              Disconnect
-            </button>
-          </div>
-        </div>
-      </div>
-    )}
-  </div>
-);
-}
 
 export default function Home() {
   const { address, isConnected } = useAccount();
@@ -166,7 +50,7 @@ export default function Home() {
 
       {/* hero */}
       <main className="mx-auto max-w-7xl px-6">
-        <section className="py-20 md:py-28">
+        <section className="py-8 md:py-12">
           <div className="grid items-center gap-12 md:grid-cols-2">
             <div>
               <div

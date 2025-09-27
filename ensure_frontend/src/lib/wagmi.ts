@@ -35,8 +35,8 @@ export const config = createConfig({
       'https://sepolia.drpc.org'
     )),
     [mainnet.id]: http(getRpcUrl(
-      process.env.NEXT_PUBLIC_ETHEREUM_RPC,
-      'https://eth-mainnet.g.alchemy.com/v2/demo'
+      process.env.NEXT_PUBLIC_MAINNET_RPC,
+      'https://rpc.ankr.com/eth'
     )),
   },
 });
