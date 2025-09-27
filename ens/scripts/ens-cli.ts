@@ -15,16 +15,17 @@ import { ethers } from 'ethers';
 
 type Json = Record<string, any>;
 
-// Network configuration
-const MAINNET_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e';
-const MAINNET_CONTROLLER = '0x253553366da8546fc250f225fe3d25d0c782303b';
-const SEPOLIA_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e'; // Same as mainnet
-const SEPOLIA_CONTROLLER = '0xfb3ce5d01e0f33f41dbb39035db9745962f1f968';
+// Network configuration (from ENS docs)
+const MAINNET_REGISTRY   = '0x00000000000C2E074eC69a0dFb2997BA6C7d2e1e';
+const MAINNET_CONTROLLER = '0x59E16fcCd424Cc24e280Be16E11Bcd56fb0CE547'; // latest
 
-// Note: ENS on Sepolia has known issues. Consider using Holesky testnet instead
-const HOLESKY_REGISTRY = '0x00000000000c2e074ec69a0dfb2997ba6c7d2e1e';
-const HOLESKY_CONTROLLER = '0xfce6ce4373cb6e7e470eaa55329638acd9dbd202';
-const HOLESKY_PUBLIC_RESOLVER = '0x6925affda98274fe0376250187ccc4ac62866dcd';
+const SEPOLIA_REGISTRY   = '0x00000000000C2E074eC69a0dFb2997BA6C7d2e1e';
+const SEPOLIA_CONTROLLER = '0xfb3cE5D01e0f33f41DbB39035dB9745962F1f968'; // ETH Registrar Controller
+const SEPOLIA_PUBLIC_RESOLVER = '0xE99638b40E4Fff0129D56f03b55b6bbC4BBE49b5';
+
+const HOLESKY_REGISTRY   = '0x00000000000C2E074eC69a0dFb2997BA6C7d2e1e';
+const HOLESKY_CONTROLLER = '0xFce6ce4373CB6E7e470EAa55329638acD9Dbd202';
+const HOLESKY_PUBLIC_RESOLVER = '0x6925aFfDA98274Fe0376250187CCC4Ac62866DcD';
 
 const PK = process.env.PRIVATE_KEY!;
 
@@ -131,46 +132,44 @@ const CTRL_ABI = [
 ] as const;
 
 /* ---------- wiring ---------- */
-// For registration commands, we'll use Holesky by default (more reliable than Sepolia)
-let config = getNetworkConfig('holesky');
-if (!config.rpc) {
-  console.error('Missing HOLESKY_RPC_URL in .env for registration');
-  console.log('\n💡 Alternative: Use Sepolia testnet (has known issues)');
-  console.log('   Set SEPOLIA_RPC_URL in .env and use --network sepolia');
-  process.exit(1);
-}
+type Net = 'mainnet' | 'sepolia' | 'holesky';
+let config: ReturnType<typeof getNetworkConfig>;
+let provider: ethers.JsonRpcProvider;
+let wallet: ethers.Wallet;
+let registry: ethers.Contract;
+let ctrl: ethers.Contract;
 
-console.log(`✅ Using ${config.name} for ENS operations (recommended for testing)`);
+async function init(net: Net) {
+  config = getNetworkConfig(net);
 
-const provider = new ethers.JsonRpcProvider(config.rpc);
-const wallet   = new ethers.Wallet(PK, provider);
-const registry = new ethers.Contract(config.registry, REG_ABI, wallet);
-const ctrl     = new ethers.Contract(config.controller, CTRL_ABI, wallet);
-
-// Preflight check: verify contract has code
-async function verifyContractCode() {
-  const code = await provider.getCode(ctrl.target as string);
-  if (code === '0x') {
-    throw new Error(`No contract code at ${ctrl.target} on this RPC. Are you on the correct network?`);
+  if (!config.rpc) {
+    const need = net === 'mainnet' ? 'ETHEREUM_RPC_URL'
+              : net === 'sepolia' ? 'SEPOLIA_RPC_URL'
+              : 'HOLESKY_RPC_URL';
+    throw new Error(`Missing ${need} in .env`);
   }
-  console.log(`✅ Controller has code (${code.length} bytes)`);
+
+  provider = new ethers.JsonRpcProvider(config.rpc);
+  wallet   = new ethers.Wallet(PK, provider);
+  registry = new ethers.Contract(config.registry, REG_ABI, wallet);
+  ctrl     = new ethers.Contract(config.controller, CTRL_ABI, wallet);
+
+  // sanity: controller has code
+  const code = await provider.getCode(ctrl.target as string);
+  if (code === '0x') throw new Error(`No contract code at ${config.controller} on ${config.name}`);
 }
+
 
 async function getPublicResolver(): Promise<string> {
-  // For Holesky, use the known Public Resolver address
-  if (config.name.includes('Holesky')) {
-    return HOLESKY_PUBLIC_RESOLVER;
-  }
-  
-  // For other networks, try to resolve resolver.eth
+  if (config.name.includes('Holesky')) return HOLESKY_PUBLIC_RESOLVER;
+  if (config.name.includes('Sepolia')) return SEPOLIA_PUBLIC_RESOLVER;
+
+  // mainnet or fallback: resolver.eth → addr(resolver.eth)
   const node = namehash('resolver.eth');
   const resOnResolver = await registry.resolver(node);
   if (resOnResolver === ethers.ZeroAddress) return ethers.ZeroAddress;
   const r = new ethers.Contract(resOnResolver, RESOLVER_ABI, wallet);
-  try {
-    const pub = await r.addr(node);
-    return pub;
-  } catch { return ethers.ZeroAddress; }
+  try { return await r.addr(node); } catch { return ethers.ZeroAddress; }
 }
 
 async function rentPrice(label: string, dur: bigint): Promise<bigint> {
@@ -236,7 +235,11 @@ async function cmdTest() {
     console.log(`✅ Wallet: ${wallet.address}`);
     
     // Test contract code
-    await verifyContractCode();
+    const code = await provider.getCode(ctrl.target as string);
+    if (code === '0x') {
+      throw new Error(`No contract code at ${ctrl.target} on this RPC. Are you on the correct network?`);
+    }
+    console.log(`✅ Controller has code (${code.length} bytes)`);
     
     // Test registry
     try {
@@ -247,14 +250,8 @@ async function cmdTest() {
     }
     
     // Test controller with static call
-    try {
-      const available = await ctrl.available.staticCall('test');
-      console.log(`✅ Controller: Connected (test.eth available = ${available})`);
-    } catch (e: any) {
-      console.log(`❌ Controller: Failed - ${e.message}`);
-      console.log(`💡 Try switching to a different RPC endpoint (Infura/Alchemy)`);
-      console.log(`💡 Current RPC: ${config.rpc}`);
-    }
+    const available = await ctrl.available.staticCall('test');
+    console.log(`✅ Controller: Connected (test.eth available = ${available})`);
     
   } catch (e: any) {
     console.error(`❌ Test failed: ${e.message}`);
@@ -271,7 +268,10 @@ async function cmdQuote(label: string, years = 1) {
   
   try {
     // Verify contract has code first
-    await verifyContractCode();
+    const code = await provider.getCode(ctrl.target as string);
+    if (code === '0x') {
+      throw new Error(`No contract code at ${ctrl.target} on this RPC. Are you on the correct network?`);
+    }
     
     // Test if controller is working with static call
     const available = await ctrl.available.staticCall(label);
@@ -298,36 +298,45 @@ async function cmdCommit(label: string, secret?: string) {
   const network = await provider.getNetwork();
   console.log(`🌐 Using ${network.name} (${Number(network.chainId)}) as ${wallet.address}`);
 
-  const available = await ctrl.available(label);
-  if (!available) { 
-    console.error(`❌ ${label}.eth is NOT available.`); 
-    process.exit(1); 
+  // Test controller connection first
+  try {
+    const available = await ctrl.available.staticCall(label);
+    if (!available) { 
+      console.error(`❌ ${label}.eth is NOT available.`); 
+      process.exit(1); 
+    }
+    console.log(`✅ ${label}.eth is available for registration`);
+  } catch (e: any) {
+    console.error(`❌ Controller test failed: ${e.message}`);
+    console.log(`💡 Try switching to a different RPC endpoint or check if the controller address is correct`);
+    process.exit(1);
   }
-  console.log(`✅ ${label}.eth is available for registration`);
 
   const resolver = await getPublicResolver();
   if (resolver === ethers.ZeroAddress) console.warn('⚠️  PublicResolver not auto-detected; will commit without resolver config');
 
   const s = ensureSecret(secret);
-  const withCfg = resolver !== ethers.ZeroAddress;
-
+  
+  // For Sepolia, use simple commitment approach since makeCommitmentWithConfig may not be available
   let commitment: string;
   try {
-    if (withCfg) commitment = await ctrl.makeCommitmentWithConfig(label, wallet.address, s, resolver, wallet.address);
-    else commitment = await ctrl.makeCommitment(label, wallet.address, s);
-  } catch {
-    commitment = await ctrl.makeCommitment(label, wallet.address, s);
+    console.log(`🔧 Creating simple commitment (Sepolia approach)`);
+    commitment = await ctrl.makeCommitment.staticCall(label, wallet.address, s);
+  } catch (e: any) {
+    console.error(`❌ Failed to create commitment: ${e.message}`);
+    console.log(`💡 This might be a controller compatibility issue. Try a different RPC endpoint.`);
+    process.exit(1);
   }
   console.log(`commitment = ${commitment}`);
 
   // duplicate / ages
   let minAge = 60, maxAge = 86400;
-  try { minAge = Number(await ctrl.minCommitmentAge()); } catch {}
-  try { maxAge = Number(await ctrl.maxCommitmentAge()); } catch {}
+  try { minAge = Number(await ctrl.minCommitmentAge.staticCall()); } catch {}
+  try { maxAge = Number(await ctrl.maxCommitmentAge.staticCall()); } catch {}
   console.log(`minAge=${minAge}s maxAge=${maxAge}s`);
 
   try {
-    const ts: bigint = await ctrl.commitments(commitment);
+    const ts: bigint = await ctrl.commitments.staticCall(commitment);
     if (ts !== 0n) {
       const now = BigInt(Math.floor(Date.now()/1000));
       const age = now - ts;
@@ -340,32 +349,54 @@ async function cmdCommit(label: string, secret?: string) {
         return;
       }
     }
-  } catch {}
+  } catch (e: any) {
+    console.log(`ℹ️  No existing commitment found: ${e.message}`);
+  }
 
   // estimate + send
-  try { await ctrl.commit.estimateGas(commitment); } catch (e:any) {
-    console.error(`❌ commit would revert (estimation): ${e.reason || e.shortMessage || e.message}`); process.exit(1);
+  try { 
+    console.log(`🔍 Estimating gas for commit...`);
+    await ctrl.commit.estimateGas(commitment); 
+    console.log(`✅ Gas estimation successful`);
+  } catch (e:any) {
+    console.error(`❌ commit would revert (estimation): ${e.reason || e.shortMessage || e.message}`);
+    console.log(`💡 This usually means the commitment is invalid or the controller is not working properly`);
+    process.exit(1);
   }
 
   const bal = await provider.getBalance(wallet.address);
-  if (bal === 0n) { console.error('❌ Balance is 0 on Sepolia. Fund a little test ETH.'); process.exit(1); }
+  if (bal === 0n) {
+    console.error(`❌ Balance is 0 on ${config.name}. Fund some test ETH.`);
+    process.exit(1);
+  }
 
-  const tx = await ctrl.commit(commitment);
-  console.log('tx:', tx.hash);
-  await tx.wait();
-  console.log('✅ commit mined. Save your secret!\nsecret:', s);
+  console.log(`🚀 Sending commit transaction...`);
+  try {
+    const tx = await ctrl.commit(commitment);
+    console.log('tx:', tx.hash);
+    console.log(`⏳ Waiting for confirmation...`);
+    await tx.wait();
+    console.log('✅ commit mined. Save your secret!\nsecret:', s);
+  } catch (e: any) {
+    console.error(`❌ Commit transaction failed: ${e.reason || e.shortMessage || e.message || e}`);
+    console.log(`💡 This might be a network issue. Try again or switch RPC endpoints.`);
+    process.exit(1);
+  }
 }
 
 async function cmdStatus(label: string, secret: string) {
   const s = ensureSecret(secret);
   const resolver = await getPublicResolver();
   let commitment: string;
-  try { commitment = await ctrl.makeCommitmentWithConfig(label, wallet.address, s, resolver, wallet.address); }
-  catch { commitment = await ctrl.makeCommitment(label, wallet.address, s); }
+  try { 
+    commitment = await ctrl.makeCommitmentWithConfig.staticCall(label, wallet.address, s, resolver, wallet.address); 
+  } catch { 
+    commitment = await ctrl.makeCommitment.staticCall(label, wallet.address, s); 
+  }
 
-  const minAge = Number(await ctrl.minCommitmentAge().catch(()=>60));
-  const maxAge = Number(await ctrl.maxCommitmentAge().catch(()=>86400));
-  const ts: bigint = await ctrl.commitments(commitment);
+  const minAge = Number(await ctrl.minCommitmentAge.staticCall().catch(()=>60));
+  const maxAge = Number(await ctrl.maxCommitmentAge.staticCall().catch(()=>86400));
+  const ts: bigint = await ctrl.commitments.staticCall(commitment);
   if (ts === 0n) { console.log('No existing commitment found for this tuple.'); return; }
 
   const now = BigInt(Math.floor(Date.now()/1000));
@@ -381,21 +412,83 @@ async function cmdStatus(label: string, secret: string) {
   }
 }
 
+async function commitmentExists(hash: string): Promise<boolean> {
+  try {
+    const ts: bigint = await ctrl.commitments.staticCall(hash);
+    return ts !== 0n;
+  } catch {
+    return false;
+  }
+}
+
+async function computeCommitments(label: string, owner: string, secret: string, resolverAddr: string) {
+  let cWith = '0x';
+  let cSimple = '0x';
+  try {
+    // Try makeCommitmentWithConfig first, fall back to simple if not available
+    cWith = await ctrl.makeCommitmentWithConfig.staticCall(label, owner, secret, resolverAddr, owner);
+  } catch { /* controller may not support this */ }
+  try {
+    cSimple = await ctrl.makeCommitment.staticCall(label, owner, secret);
+  } catch { /* ignore */ }
+  return { cWith, cSimple };
+}
+
 async function cmdRegister(label: string, years = 1, secret?: string) {
+  if (!validateLabel(label)) {
+    console.error(`❌ Invalid label: ${label}`);
+    process.exit(1);
+  }
   const s = ensureSecret(secret);
   const dur = yearsToSeconds(years);
+
+  // rent
   const price = await rentPrice(label, dur);
 
+  // detect resolver (or use known Sepolia/Holesky)
   const resolver = await getPublicResolver();
+  const resolverForWithCfg = resolver === ethers.ZeroAddress ? ethers.ZeroAddress : resolver;
+
+  // find which commitment exists
+  const { cWith, cSimple } = await computeCommitments(label, wallet.address, s, resolverForWithCfg);
+  const hasWith = cWith !== '0x' && await commitmentExists(cWith);
+  const hasSimple = cSimple !== '0x' && await commitmentExists(cSimple);
+
+  if (!hasWith && !hasSimple) {
+    console.error('❌ No matching commitment found. Re-run `commit` with this same --secret, wait minAge, then try `register` again.');
+    process.exit(1);
+  }
+
+  // sanity: minAge reached?
+  const minAge = Number(await ctrl.minCommitmentAge().catch(()=>60));
+  const nowSec = BigInt(Math.floor(Date.now()/1000));
+  const ts = await ctrl.commitments(hasWith ? cWith : cSimple);
+  const age = nowSec - ts;
+  if (age < BigInt(minAge)) {
+    console.error(`⏳ Too early. Wait ~${Number(BigInt(minAge)-age)}s more (minAge=${minAge}s).`);
+    process.exit(1);
+  }
+
+  // send tx with the **matching** register method
   let tx, rc;
   try {
-    tx = await ctrl.registerWithConfig(label, wallet.address, dur, s, resolver === ethers.ZeroAddress ? ethers.ZeroAddress : resolver, wallet.address, { value: price });
+    if (hasWith) {
+      // Try registerWithConfig first, fall back to simple register if not available
+      try {
+        tx = await ctrl.registerWithConfig(label, wallet.address, dur, s, resolverForWithCfg, wallet.address, { value: price });
+      } catch {
+        console.log(`⚠️  registerWithConfig not available, using simple register`);
+        tx = await ctrl.register(label, wallet.address, dur, s, { value: price });
+      }
+    } else {
+      tx = await ctrl.register(label, wallet.address, dur, s, { value: price });
+    }
     rc = await tx.wait();
-  } catch (e) {
-    console.warn('registerWithConfig failed, falling back to register(...)');
-    tx = await ctrl.register(label, wallet.address, dur, s, { value: price });
-    rc = await tx.wait();
+  } catch (e:any) {
+    console.error('❌ register reverted:', e.reason || e.shortMessage || e.message || e);
+    process.exit(1);
   }
+
   console.log('tx:', tx.hash);
 
   // verify owner
@@ -546,23 +639,24 @@ async function cmdReverse(address: string, network: 'mainnet' | 'sepolia' | 'hol
 /* ---------- main ---------- */
 (async () => {
   const { cmd, args, flags } = parseArgs();
+
+  const net: Net =
+    flags.network === 'mainnet' ? 'mainnet' :
+    flags.network === 'sepolia' || flags.network === 'testnet' ? 'sepolia' :
+    'holesky'; // default
+
+  // init provider/wallet/contracts for chosen net
+  await init(net);
+
   try {
-    // Determine network for resolve/reverse commands
-    let network: 'mainnet' | 'sepolia' | 'holesky' = 'mainnet';
-    if (flags.network === 'sepolia' || flags.network === 'testnet') {
-      network = 'sepolia';
-    } else if (flags.network === 'holesky') {
-      network = 'holesky';
-    }
-    
-    if (cmd === 'test')       await cmdTest();
-    else if (cmd === 'quote')      await cmdQuote(args[0], Number(flags.years ?? 1));
-    else if (cmd === 'commit')    await cmdCommit(args[0], flags.secret);
-    else if (cmd === 'status')    await cmdStatus(args[0], flags.secret);
-    else if (cmd === 'register')  await cmdRegister(args[0], Number(flags.years ?? 1), flags.secret);
-    else if (cmd === 'all')       await cmdAll(args[0], Number(flags.years ?? 1), Number(flags.wait ?? (await ctrl.minCommitmentAge().catch(()=>60))));
-    else if (cmd === 'resolve')  await cmdResolve(args[0], network);
-    else if (cmd === 'reverse')  await cmdReverse(args[0], network);
+    if (cmd === 'test')         await cmdTest();
+    else if (cmd === 'quote')   await cmdQuote(args[0], Number(flags.years ?? 1));
+    else if (cmd === 'commit')  await cmdCommit(args[0], flags.secret);
+    else if (cmd === 'status')  await cmdStatus(args[0], flags.secret);
+    else if (cmd === 'register')await cmdRegister(args[0], Number(flags.years ?? 1), flags.secret);
+    else if (cmd === 'all')     await cmdAll(args[0], Number(flags.years ?? 1), Number(flags.wait ?? 60));
+    else if (cmd === 'resolve') await cmdResolve(args[0], net);
+    else if (cmd === 'reverse') await cmdReverse(args[0], net);
     else {
       console.log(`ENS Sepolia CLI - Enhanced ENS Registration & Resolution
       
