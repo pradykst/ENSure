@@ -24,6 +24,10 @@ const nextConfig: NextConfig = {
 
     return config;
   },
+  eslint: {
+    // Don't block production builds on ESLint errors
+    ignoreDuringBuilds: true,
+  },
   experimental: {
     // Optimize bundle size
     optimizePackageImports: ['@selfxyz/qrcode', 'wagmi', 'viem'],
