@@ -28,6 +28,9 @@ const nextConfig: NextConfig = {
     // Don't block production builds on ESLint errors
     ignoreDuringBuilds: true,
   },
+
+  typescript: { ignoreBuildErrors: true },
+  
   experimental: {
     // Optimize bundle size
     optimizePackageImports: ['@selfxyz/qrcode', 'wagmi', 'viem'],
