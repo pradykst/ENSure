@@ -86,6 +86,17 @@ ENSure is **not limited to hackathons**. It can extend to:
 
 ---
 
+## Self Protocol
+- **Network:** Celo Testnet 
+- **Address:** [`0x51e6aa6f6527b254e8f8b6677cdfa3861c0bcc5e`](https://celo-sepolia.blockscout.com/address/0x51e6aa6f6527b254e8f8b6677cdfa3861c0bcc5e)
+
+## Rootstock Contract  
+- **Network:** Rootstock Testnet  
+- **Address:** [`0xaB376f64F16481E496DdD3336Dd12f7F9a58bAd3`](https://explorer.testnet.rootstock.io/address/0xab376f64f16481e496ddd3336dd12f7f9a58bad3)
+---
+
+---
+
 ## 📜 License
 
 MIT License. Free to use, fork, and build on.  
