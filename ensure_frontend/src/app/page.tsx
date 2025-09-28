@@ -26,11 +26,13 @@ export default function Home() {
   const { address, isConnected } = useAccount();
   const [bootRedirected, setBootRedirected] = useState(false);
 
-  // Boot redirect: /events if verified else /verify
+  // Boot redirect: /events if connected (removed Self verification requirement)
   useEffect(() => {
     if (!isConnected || !address || bootRedirected) return;
-    const v = localStorage.getItem(`ensure:verified:${address.toLowerCase()}`);
-    const target = v === '1' ? '/events' : '/verify';
+    // Commented out Self verification check as requested
+    // const v = localStorage.getItem(`ensure:verified:${address.toLowerCase()}`);
+    // const target = v === '1' ? '/events' : '/verify';
+    const target = '/events'; // Always redirect to events page
     const t = setTimeout(() => {
       window.location.assign(target);
     }, 350);

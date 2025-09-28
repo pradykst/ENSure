@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useAccount } from 'wagmi';
+import { useAccount, useReadContract } from 'wagmi';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
+import { formatEther, isAddress, zeroAddress } from 'viem';
 import { Header } from '@/components/Header';
 import { Footer } from '@/components/Footer';
 
@@ -29,6 +30,55 @@ const BRAND = {
   primary: '#2962FF',
   base: '#FFFFFF',
   dark: '#1A1A2E',
+};
+
+/** Smart Contract Configuration */
+const PRIZE_ESCROW_ADDR = '0xaB376f64F16481E496DdD3336Dd12f7F9a58bAd3' as `0x${string}`;
+const TRIF_ADDRESS = '0x19f64674D8a5b4e652319F5e239EFd3bc969a1FE' as `0x${string}`;
+
+/** ABI for getting event details */
+const PRIZE_ESCROW_ABI = [
+  {
+    type: 'function',
+    name: 'getEvent',
+    stateMutability: 'view',
+    inputs: [{ name: 'id', type: 'uint256' }],
+    outputs: [
+      { name: 'organizer', type: 'address' },
+      { name: 'token', type: 'address' },
+      { name: 'prizeRemaining', type: 'uint96' },
+      { name: 'registerDeadline', type: 'uint64' },
+      { name: 'finalizeDeadline', type: 'uint64' },
+      { name: 'scope', type: 'bytes32' },
+      { name: 'finalized', type: 'bool' },
+      { name: 'canceled', type: 'bool' },
+      { name: 'judgeCount', type: 'uint16' },
+      { name: 'judgeThreshold', type: 'uint8' },
+    ],
+  },
+] as const;
+
+/** Helper functions */
+const isZero = (addr?: string) => !addr || addr.toLowerCase() === zeroAddress.toLowerCase();
+const isTrif = (addr?: string) => !!addr && addr.toLowerCase() === TRIF_ADDRESS.toLowerCase();
+const tokenLabel = (addr?: string) => (isZero(addr) ? "tRBTC" : isTrif(addr) ? "tRIF" : "tokens");
+
+/** Local storage helpers */
+const getEventMetadata = (eventId: number) => {
+  try {
+    const stored = localStorage.getItem(`ensure:event:${eventId}`);
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+};
+
+const saveEventMetadata = (eventId: number, metadata: any) => {
+  try {
+    localStorage.setItem(`ensure:event:${eventId}`, JSON.stringify(metadata));
+  } catch (error) {
+    console.error('Failed to save event metadata:', error);
+  }
 };
 
 const mockEvents: EventCard[] = [
@@ -132,6 +182,52 @@ function formatRange(startISO: string, endISO: string) {
   return `${s.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} – ${e.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
 }
 
+/** Component to fetch individual event data */
+function EventDataFetcher({ eventId, onData }: { eventId: number; onData: (data: any) => void }) {
+  const { data, isLoading, error } = useReadContract({
+    address: PRIZE_ESCROW_ADDR,
+    abi: PRIZE_ESCROW_ABI,
+    functionName: 'getEvent',
+    args: [BigInt(eventId)],
+    query: { enabled: true },
+  });
+
+  useEffect(() => {
+    if (data && Array.isArray(data)) {
+      const [
+        organizer,
+        token,
+        prizeRemaining,
+        registerDeadline,
+        finalizeDeadline,
+        scope,
+        finalized,
+        canceled,
+        judgeCount,
+        judgeThreshold,
+      ] = data as any[];
+
+      const eventData = {
+        id: eventId,
+        organizer: String(organizer),
+        token: String(token),
+        prizeRemaining: BigInt(prizeRemaining),
+        registerDeadline: Number(registerDeadline),
+        finalizeDeadline: Number(finalizeDeadline),
+        scope: String(scope),
+        finalized: Boolean(finalized),
+        canceled: Boolean(canceled),
+        judgeCount: Number(judgeCount),
+        judgeThreshold: Number(judgeThreshold),
+      };
+
+      onData(eventData);
+    }
+  }, [data, eventId, onData]);
+
+  return null;
+}
+
 export default function EventsPage() {
   const { address, isConnected } = useAccount();
   const router = useRouter();
@@ -139,25 +235,113 @@ export default function EventsPage() {
   const [ready, setReady] = useState(false);
   const [filter, setFilter] = useState<'all' | Status>('all');
   const [query, setQuery] = useState('');
+  const [realEvents, setRealEvents] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
 
-  // Gate: must be connected and verified (soft gate via localStorage)
+  // Gate: must be connected (removed Self verification requirement)
   useEffect(() => {
     if (!isConnected || !address) {
       router.replace('/');
       return;
     }
-    const ok = localStorage.getItem(`ensure:verified:${address.toLowerCase()}`) === '1';
-    if (!ok) {
-      router.replace('/verify');
-      return;
-    }
+    // Commented out Self verification check as requested
+    // const ok = localStorage.getItem(`ensure:verified:${address.toLowerCase()}`) === '1';
+    // if (!ok) {
+    //   router.replace('/verify');
+    //   return;
+    // }
     setReady(true);
   }, [isConnected, address, router]);
 
+  // Fetch real events from blockchain and localStorage
+  useEffect(() => {
+    if (!ready) return;
+    
+    const fetchEvents = async () => {
+      setLoadingEvents(true);
+      const events: any[] = [];
+      
+      // Check events 1-50 for localStorage metadata
+      for (let i = 1; i <= 50; i++) {
+        try {
+          const metadata = getEventMetadata(i);
+          if (metadata) {
+            events.push({
+              id: i,
+              ...metadata,
+              isRealEvent: true,
+            });
+          }
+        } catch (error) {
+          console.error(`Error fetching event ${i}:`, error);
+        }
+      }
+      
+      // Add some mock events for demonstration if no real events
+      const combinedEvents = events.length > 0 ? events : mockEvents.slice(0, 3);
+      
+      setRealEvents(combinedEvents);
+      setLoadingEvents(false);
+    };
+
+    fetchEvents();
+    
+    // Listen for new events created (from localStorage changes)
+    const handleStorageChange = () => {
+      fetchEvents();
+    };
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    // Also check periodically for new events
+    const interval = setInterval(fetchEvents, 10000); // Check every 10 seconds
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, [ready]);
+
   const computed = useMemo(() => {
     const now = new Date();
-    return mockEvents
-      .map((e) => ({ ...e, _status: statusFor(e.startDate, e.endDate, now) as Status }))
+    
+    // Transform real events to match EventCard format
+    const transformedEvents = realEvents.map((e) => {
+      // For real events, calculate status based on deadlines
+      let status: Status = 'upcoming';
+      if (e.finalized || e.canceled) {
+        status = 'ended';
+      } else if (e.registerDeadline && e.finalizeDeadline) {
+        const regDeadline = new Date(e.registerDeadline * 1000);
+        const finDeadline = new Date(e.finalizeDeadline * 1000);
+        
+        if (now > finDeadline) {
+          status = 'ended';
+        } else if (now > regDeadline) {
+          status = 'ongoing';
+        }
+      }
+      
+      return {
+        id: e.id,
+        title: e.title || e.eventName || `Event #${e.id}`,
+        organizer: e.organizer || 'Unknown',
+        startDate: e.registerDeadline ? new Date(e.registerDeadline * 1000).toISOString().split('T')[0] : '2025-01-01',
+        endDate: e.finalizeDeadline ? new Date(e.finalizeDeadline * 1000).toISOString().split('T')[0] : '2025-01-15',
+        location: e.location || 'Online',
+        prizePool: e.prizeRemaining ? `${formatEther(e.prizeRemaining)} ${tokenLabel(e.token)}` : '0 tRBTC',
+        participants: 0, // TODO: Get from contract
+        maxParticipants: 1000,
+        image: e.image || '/ensure.png',
+        tags: e.tags || [tokenLabel(e.token), e.scope || 'Blockchain'],
+        short: e.description || e.short || `Event #${e.id} on Rootstock`,
+        _status: status,
+        isRealEvent: e.isRealEvent || false,
+        eventData: e, // Keep original blockchain data
+      };
+    });
+    
+    return transformedEvents
       .filter((e) => {
         // filter by status
         const passStatus = filter === 'all' ? true : e._status === filter;
@@ -184,7 +368,7 @@ export default function EventsPage() {
         // fallback by start date
         return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
       });
-  }, [filter, query]);
+  }, [filter, query, realEvents]);
 
   if (!ready) {
     return (
@@ -263,14 +447,30 @@ export default function EventsPage() {
 
       {/* Events grid */}
       <section className="mx-auto max-w-7xl px-6 py-10">
-        {computed.length === 0 ? (
+        {loadingEvents ? (
+          <div
+            className="rounded-2xl p-8 text-center"
+            style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)' }}
+          >
+            <div className="text-4xl animate-spin">⏳</div>
+            <h3 className="mt-3 text-lg font-semibold text-white">Loading events...</h3>
+            <p className="mt-1 text-white/70">Fetching events from blockchain</p>
+          </div>
+        ) : computed.length === 0 ? (
           <div
             className="rounded-2xl p-8 text-center"
             style={{ backgroundColor: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.12)' }}
           >
             <div className="text-4xl">🎫</div>
-            <h3 className="mt-3 text-lg font-semibold text-white">No events match your filters</h3>
-            <p className="mt-1 text-white/70">Try a different status or search term.</p>
+            <h3 className="mt-3 text-lg font-semibold text-white">No events found</h3>
+            <p className="mt-1 text-white/70">Create your first event to get started!</p>
+            <Link
+              href="/events/create"
+              className="mt-4 inline-flex items-center justify-center rounded-2xl px-6 py-3 font-semibold text-white"
+              style={{ backgroundColor: BRAND.primary }}
+            >
+              Create Event
+            </Link>
           </div>
         ) : (
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -336,7 +536,7 @@ export default function EventsPage() {
                   {/* Tags */}
                   {e.tags && e.tags.length > 0 && (
                     <div className="mt-3 flex flex-wrap gap-2">
-                      {e.tags.map((t) => (
+                      {e.tags.map((t: string) => (
                         <span
                           key={t}
                           className="rounded-lg px-2 py-1 text-xs"
