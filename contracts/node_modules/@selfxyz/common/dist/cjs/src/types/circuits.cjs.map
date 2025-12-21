@@ -1,0 +1,1 @@
+{"version":3,"sources":["../../../../src/types/circuits.ts"],"sourcesContent":["export type { UserIdType } from '../utils/circuits/uuid.js';\n"],"mappings":";;;;;;;;;;;;;;;AAAA;AAAA;","names":[]}

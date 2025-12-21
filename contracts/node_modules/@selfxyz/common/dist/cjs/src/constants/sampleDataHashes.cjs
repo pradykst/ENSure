@@ -1,0 +1,282 @@
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __export = (target, all) => {
+  for (var name in all)
+    __defProp(target, name, { get: all[name], enumerable: true });
+};
+var __copyProps = (to, from, except, desc) => {
+  if (from && typeof from === "object" || typeof from === "function") {
+    for (let key of __getOwnPropNames(from))
+      if (!__hasOwnProp.call(to, key) && key !== except)
+        __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+  }
+  return to;
+};
+var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+
+// src/constants/sampleDataHashes.ts
+var sampleDataHashes_exports = {};
+__export(sampleDataHashes_exports, {
+  sampleDataHashes_large: () => sampleDataHashes_large,
+  sampleDataHashes_small: () => sampleDataHashes_small
+});
+module.exports = __toCommonJS(sampleDataHashes_exports);
+var sampleDataHashes_large = [
+  [
+    2,
+    [
+      -66,
+      82,
+      -76,
+      -21,
+      -34,
+      33,
+      79,
+      50,
+      -104,
+      -120,
+      -114,
+      35,
+      116,
+      -32,
+      6,
+      -14,
+      -100,
+      -115,
+      -128,
+      -8,
+      10,
+      61,
+      98,
+      86,
+      -8,
+      45,
+      -49,
+      -46,
+      90,
+      -24,
+      -81,
+      38
+    ]
+  ],
+  [
+    3,
+    [
+      0,
+      -62,
+      104,
+      108,
+      -19,
+      -10,
+      97,
+      -26,
+      116,
+      -58,
+      69,
+      110,
+      26,
+      87,
+      17,
+      89,
+      110,
+      -57,
+      108,
+      -6,
+      36,
+      21,
+      39,
+      87,
+      110,
+      102,
+      -6,
+      -43,
+      -82,
+      -125,
+      -85,
+      -82
+    ]
+  ],
+  [
+    11,
+    [
+      -120,
+      -101,
+      87,
+      -112,
+      111,
+      15,
+      -104,
+      127,
+      85,
+      25,
+      -102,
+      81,
+      20,
+      58,
+      51,
+      75,
+      -63,
+      116,
+      -22,
+      0,
+      60,
+      30,
+      29,
+      30,
+      -73,
+      -115,
+      72,
+      -9,
+      -1,
+      -53,
+      100,
+      124
+    ]
+  ],
+  [
+    12,
+    [
+      41,
+      -22,
+      106,
+      78,
+      31,
+      11,
+      114,
+      -119,
+      -19,
+      17,
+      92,
+      71,
+      -122,
+      47,
+      62,
+      78,
+      -67,
+      -23,
+      -55,
+      -42,
+      53,
+      4,
+      47,
+      -67,
+      -55,
+      -123,
+      6,
+      121,
+      34,
+      -125,
+      64,
+      -114
+    ]
+  ],
+  [
+    13,
+    [
+      91,
+      -34,
+      -46,
+      -63,
+      62,
+      -34,
+      104,
+      82,
+      36,
+      41,
+      -118,
+      -3,
+      70,
+      15,
+      -108,
+      -48,
+      -100,
+      45,
+      105,
+      -85,
+      -15,
+      -61,
+      -71,
+      43,
+      -39,
+      -94,
+      -110,
+      -55,
+      -34,
+      89,
+      -18,
+      38
+    ]
+  ],
+  [
+    14,
+    [
+      76,
+      123,
+      -40,
+      13,
+      51,
+      -29,
+      72,
+      -11,
+      59,
+      -63,
+      -18,
+      -90,
+      103,
+      49,
+      23,
+      -92,
+      -85,
+      -68,
+      -62,
+      -59,
+      -100,
+      -69,
+      -7,
+      28,
+      -58,
+      95,
+      69,
+      15,
+      -74,
+      56,
+      54,
+      38
+    ]
+  ]
+];
+var sampleDataHashes_small = [
+  [
+    2,
+    [
+      -66,
+      82,
+      -76,
+      -21,
+      -34,
+      33,
+      79,
+      50,
+      -104,
+      -120,
+      -114,
+      35,
+      116,
+      -32,
+      6,
+      -14,
+      -100,
+      -115,
+      -128,
+      -8
+    ]
+  ],
+  [3, [0, -62, 104, 108, -19, -10, 97, -26, 116, -58, 69, 110, 26, 87, 17, 89, 110, -57, 108, -6]],
+  [
+    14,
+    [76, 123, -40, 13, 51, -29, 72, -11, 59, -63, -18, -90, 103, 49, 23, -92, -85, -68, -62, -59]
+  ]
+];
+//# sourceMappingURL=sampleDataHashes.cjs.map

@@ -1,0 +1,1 @@
+{"version":3,"sources":["../../../../src/types/app.ts"],"sourcesContent":["export type { EndpointType, SelfApp, SelfAppDisclosureConfig } from '../utils/appType.js';\n"],"mappings":";;;;;;;;;;;;;;;AAAA;AAAA;","names":[]}

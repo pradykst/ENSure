@@ -1,0 +1,1 @@
+{"version":3,"sources":["../../../../src/types/passport.ts"],"sourcesContent":["export type { DocumentCategory, DocumentType, PassportData } from '../utils/types.js';\nexport type { PassportMetadata } from '../utils/passports/passport_parsing/parsePassportData.js';\n"],"mappings":";;;;;;;;;;;;;;;AAAA;AAAA;","names":[]}

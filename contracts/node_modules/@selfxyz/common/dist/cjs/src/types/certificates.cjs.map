@@ -1,0 +1,1 @@
+{"version":3,"sources":["../../../../src/types/certificates.ts"],"sourcesContent":["export type {\n  CertificateData,\n  PublicKeyDetailsECDSA,\n  PublicKeyDetailsRSA,\n} from '../utils/certificate_parsing/dataStructure.js';\n"],"mappings":";;;;;;;;;;;;;;;AAAA;AAAA;","names":[]}
