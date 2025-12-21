@@ -1,5 +1,15 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# System
 .DS_Store
+
+# Secrets
 .env
+.env.local
+
+# Foundry build artifacts
 out/
 cache/
 broadcast/
