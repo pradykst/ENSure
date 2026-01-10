@@ -1,4 +1,35 @@
-// App.tsx
+// import React from "react";
+// import { BrowserRouter, Routes, Route } from "react-router-dom";
+// import { WagmiProvider } from "wagmi";
+// import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// import { config } from "./lib/wagmi";
+// import { Navbar } from "./components/layout/Navbar";
+// import Home from "./pages/Home";
+// import CreateEvent from "./pages/CreateEvent";
+// import EventDetails from "./pages/EventDetails";
+
+// const queryClient = new QueryClient();
+
+// export default function App() {
+//   return (
+//     <WagmiProvider config={config}>
+//       <QueryClientProvider client={queryClient}>
+//         <BrowserRouter>
+//           <div className="min-h-screen bg-slate-950 font-sans selection:bg-indigo-500/30">
+//             <Navbar />
+//             <Routes>
+//               <Route path="/" element={<Home />} />
+//               <Route path="/create" element={<CreateEvent />} />
+//               <Route path="/event/:id" element={<EventDetails />} />
+//             </Routes>
+//           </div>
+//         </BrowserRouter>
+//       </QueryClientProvider>
+//     </WagmiProvider>
+//   );
+// }
+
+
 import React, { useMemo, useState, useEffect } from "react";
 import { WagmiProvider, createConfig, http } from "wagmi";
 import {
@@ -241,10 +272,10 @@ function Input({
   ...props
 }: React.InputHTMLAttributes<HTMLInputElement> & { label?: string; error?: string; className?: string }) {
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex flex-col gap-1.5 w-full">
       {label && <label className="text-sm font-semibold text-gray-700">{label}</label>}
       <input
-        className={`border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 ${
+        className={`w-full bg-white text-gray-900 placeholder:text-gray-400 border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200 ${
           error ? "border-red-500" : ""
         } ${className}`}
         {...props}
